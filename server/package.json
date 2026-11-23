@@ -1,0 +1,1 @@
+{"name":"server","version":"0.0.1","private":true,"type":"module","scripts":{"dev":"tsx watch src/index.ts","start":"tsx src/index.ts","typecheck":"tsc --noEmit"},"dependencies":{"@colyseus/schema":"^5.0.50","@freek/shared":"^0.0.1","colyseus":"^0.18.12"},"devDependencies":{"@types/node":"^26.6.6","tsx":"^4.23.15","typescript":"^7.0.2"}}

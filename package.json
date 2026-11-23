@@ -1,0 +1,11 @@
+{
+  "name": "freek-game",
+  "private": true,
+  "workspaces": ["shared", "server", "client"],
+  "scripts": {
+    "dev:server": "npm run dev -w server",
+    "dev:client": "npm run dev -w client",
+    "dev": "npm run dev:server & npm run dev:client",
+    "build": "npm run build -w client"
+  }
+}

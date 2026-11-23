@@ -1,0 +1,2 @@
+{ "compilerOptions": { "target": "ES2022", "module": "ESNext", "moduleResolution": "bundler", "strict": true, "skipLibCheck": true, "esModuleInterop": true, "experimentalDecorators": true, "useDefineForClassFields": false, "allowImportingTsExtensions": false, "noEmit": true , "lib": ["ES2022","DOM","DOM.Iterable"], "types": ["vite/client"] },
+  "include": ["src", "../shared/src"] }

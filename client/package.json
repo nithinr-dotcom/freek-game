@@ -1,0 +1,1 @@
+{"name":"client","version":"0.0.1","private":true,"type":"module","scripts":{"dev":"vite --host","build":"tsc --noEmit && vite build","preview":"vite preview"},"dependencies":{"@colyseus/sdk":"^0.18.10","@freek/shared":"^0.0.1","three":"^0.187.0"},"devDependencies":{"@types/three":"^0.187.0","typescript":"^7.0.2","vite":"^8.3.8"}}
