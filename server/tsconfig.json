@@ -1,2 +1,2 @@
 { "compilerOptions": { "target": "ES2022", "module": "ESNext", "moduleResolution": "bundler", "strict": true, "skipLibCheck": true, "esModuleInterop": true, "experimentalDecorators": true, "useDefineForClassFields": false, "allowImportingTsExtensions": false, "noEmit": true , "types": ["node"] },
-  "include": ["src", "../shared/src"] }
+  "include": ["src", "scripts", "../shared/src"] }
