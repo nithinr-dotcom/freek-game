@@ -8,6 +8,9 @@ class Sfx {
   private noiseBuf: AudioBuffer | null = null;
   private rainNode: { src: AudioBufferSourceNode; gain: GainNode } | null = null;
   muted = localStorage.getItem("tb_muted") === "1";
+  volume = 0.8;
+  private get gainValue() { return this.muted ? 0 : this.volume * 0.7; }
+  setVolume(v: number) { this.volume = Math.max(0, Math.min(1, v)); if (this.master) this.master.gain.value = this.gainValue; }
 
   /** call from a user gesture */
   unlock() {
@@ -16,7 +19,7 @@ class Sfx {
       if (!AC) return;
       this.ctx = new AC();
       this.master = this.ctx.createGain();
-      this.master.gain.value = this.muted ? 0 : 0.55;
+      this.master.gain.value = this.gainValue;
       const comp = this.ctx.createDynamicsCompressor();
       this.master.connect(comp).connect(this.ctx.destination);
       const len = this.ctx.sampleRate * 2;
@@ -29,7 +32,7 @@ class Sfx {
   toggleMute() {
     this.muted = !this.muted;
     localStorage.setItem("tb_muted", this.muted ? "1" : "0");
-    if (this.master) this.master.gain.value = this.muted ? 0 : 0.55;
+    if (this.master) this.master.gain.value = this.gainValue;
     return this.muted;
   }
   private get ok() { return !!this.ctx && !!this.master && this.ctx.state === "running"; }
@@ -129,6 +132,7 @@ class Sfx {
     this.noise(0.3, { vol: 0.3, type: "lowpass", freq: 2000, freqEnd: 300, delay });
   }
   announce() { this.tone(880, 0.12, { type: "sine", vol: 0.12 }); this.tone(1175, 0.2, { type: "sine", vol: 0.12, delay: 0.1 }); }
+  blip() { this.tone(520 + Math.random() * 120, 0.04, { type: "square", vol: 0.03 }); }
   click() { this.tone(1400, 0.04, { type: "triangle", vol: 0.08 }); }
   sink() { this.tone(300, 1.6, { type: "sine", vol: 0.2, slide: 0.25 }); this.noise(1.5, { vol: 0.3, type: "lowpass", freq: 800, freqEnd: 100 }); }
 

@@ -7,7 +7,7 @@ export interface StateEvents {
   onMonsterRemove(cb: (m: MonsterS, id: string) => void): void;
 }
 
-/** What the game needs from the network layer. Implemented by OnlineNet (net.ts) and OfflineNet (game/offline.ts). */
+/** What the game needs from the network layer. Implemented by OnlineNet (net.ts) and SoloNet (solo/SoloNet.ts). */
 export interface GameNet extends StateEvents {
   readonly offline: boolean;
   readonly sessionId: string;

@@ -48,20 +48,20 @@ export class Fishing {
       this.chargeT = 0;
       this.power = 0;
     } else if (this.phase === "bite") {
-      this.net.send("hook", {});
-      sfx.hook();
-      this.hud.hidePrompt();
       this.setPhase("hooking");
+      this.hud.hidePrompt();
+      sfx.hook();
+      this.net.send("hook", {});
     }
   }
   /** primary released; aimRad = heading to cast toward */
   primaryUp(aimRad: number) {
     if (this.phase !== "charging") return;
     const power = Math.max(0.08, this.power);
-    this.net.send("cast", { power, aimRad });
+    this.setPhase("casting");
     sfx.cast();
     this.onCast?.();
-    this.setPhase("casting");
+    this.net.send("cast", { power, aimRad });
   }
   /** abort a charge without casting (mouse press became a camera drag) */
   cancelCharge() { if (this.phase === "charging") this.setPhase("idle"); }
@@ -101,6 +101,7 @@ export class Fishing {
     });
   }
   private reelLevel = 1;
+  private desyncT = 0;
   level = 1;
 
   update(dt: number, me: PlayerS | undefined, held: boolean, gust: number) {
@@ -145,5 +146,10 @@ export class Fishing {
     }
     // if the server put us back to sailing while we think we're fishing (cancelled server-side)
     if ((this.phase === "waiting") && me.state === "stunned") this.setPhase("idle");
+    // recover from a desync: we're idle but the server still thinks we're fishing
+    if (this.phase === "idle" && me.state !== "sailing" && me.state !== "stunned" && !me.sunk) {
+      this.desyncT += dt;
+      if (this.desyncT > 3) { this.desyncT = 0; this.net.send("cancelFishing", {}); }
+    } else this.desyncT = 0;
   }
 }

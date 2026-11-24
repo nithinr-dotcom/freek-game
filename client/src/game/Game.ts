@@ -2,14 +2,20 @@
 import * as THREE from "three";
 import {
   MOVE_SEND_HZ, HARPOON_COOLDOWN_MS, HARPOON_RANGE, SQUADS, TIER_INFO, BOAT_MAX_HP, RESPAWN_MS, DOCK_POS,
-  zoneAt, tierRank, type PlayerS, type MonsterS, type SquadS, type WindS, type SquadId,
+  zoneAt, tierRank, MONSTERS, type PlayerS, type MonsterS, type SquadS, type WindS, type SquadId,
 } from "@freek/shared";
 import type { GameNet } from "./types";
 import { Input } from "./input";
 import { ChaseCamera } from "./camera";
 import { LocalBoat } from "./localBoat";
 import { Fishing } from "./fishing";
-import { OfflineNet } from "./offline";
+import { SoloNet } from "../solo/SoloNet";
+import { Campaign } from "../solo/campaign";
+import { loadSettings, type Settings } from "../solo/save";
+import { Dialogue } from "../ui/dialogue";
+import { ChapterScreens, chapterSelect } from "../ui/chapterScreens";
+import { PauseMenu } from "../ui/pauseMenu";
+import { ZoneBarriers } from "../world/barrier";
 import { World } from "../world/world";
 import { Boat } from "../entities/Boat";
 import { MonsterEntity } from "../entities/Monster";
@@ -41,7 +47,7 @@ export class Game {
   private input: Input;
   private chase: ChaseCamera;
   private local = new LocalBoat();
-  private clock = new THREE.Clock();
+  private clock = { last: performance.now(), getDelta(): number { const n = performance.now(); const d = (n - this.last) / 1000; this.last = n; return d; } };
   private time = 0;
   private net: GameNet | null = null;
   private boats = new Map<string, Boat>();
@@ -68,6 +74,16 @@ export class Game {
   private ndc = new THREE.Vector2();
   private fps = { acc: 0, frames: 0, el: null as HTMLElement | null };
   private disconnected = false;
+  // ---- solo
+  private solo: SoloNet | null = null;
+  private campaign: Campaign | null = null;
+  private dialogue!: Dialogue;
+  private chapters!: ChapterScreens;
+  private pause!: PauseMenu;
+  private barriers: ZoneBarriers;
+  private dev = new URLSearchParams(location.search).get("dev") === "1";
+  private lockToastAt = 0;
+  private cinematic: { x: number; z: number; t: number; dur: number } | null = null;
 
   constructor(canvas: HTMLCanvasElement, uiRoot: HTMLElement, labelsRoot: HTMLElement) {
     this.uiRoot = uiRoot;
@@ -78,7 +94,7 @@ export class Game {
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.0;
     this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    this.renderer.shadowMap.type = THREE.PCFShadowMap;
     this.camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.3, 2500);
     this.camera.position.set(40, 30, 60);
     this.world = new World(this.scene);
@@ -87,6 +103,8 @@ export class Game {
     this.labels = new Labels(labelsRoot);
     this.input = new Input(canvas);
     this.chase = new ChaseCamera(this.camera);
+    this.barriers = new ZoneBarriers(this.scene);
+    this.applySettings(loadSettings());
     window.addEventListener("resize", () => this.resize());
     this.renderer.setAnimationLoop(() => this.frame());
   }
@@ -99,8 +117,13 @@ export class Game {
     this.camera.updateProjectionMatrix();
   }
 
+  applySettings(s: Settings) {
+    sfx.setVolume(s.volume);
+    this.chase.sensitivity = s.camSensitivity;
+  }
+
   // ======================================================================= attach
-  attach(net: GameNet) {
+  attach(net: GameNet, opts: { replayChapter?: number } = {}) {
     this.net = net;
     const ui = this.uiRoot;
     this.hud = new Hud(ui);
@@ -112,7 +135,7 @@ export class Game {
     this.reveal = new Reveal(ui);
     this.board = new Leaderboard(ui);
     this.squadPicker = new SquadPicker(ui);
-    this.help = new Help(ui, net.offline);
+    this.help = new Help(ui, this.dev && net instanceof SoloNet);
     this.fps.el = h("div.fps");
     if (new URLSearchParams(location.search).has("fps")) ui.append(this.fps.el);
     this.hud.setRoom(net.code, net.isPrivate);
@@ -215,17 +238,57 @@ export class Game {
       }
     };
 
-    if (net.offline) {
-      this.chat.add("", "Offline sandbox — K: storm, N: spawn monster, G: gust, H: help", undefined, true);
+    if (net instanceof SoloNet) {
+      this.setupSolo(net, opts.replayChapter);
     } else {
       this.chat.add("", `Joined room ${net.code}. Share the code with friends!`, undefined, true);
       // squad picker right after joining
       setTimeout(() => this.squadPicker.show(), 400);
     }
-    if (!localStorage.getItem("tb_seen_help")) { localStorage.setItem("tb_seen_help", "1"); setTimeout(() => this.help.toggle(), net.offline ? 300 : 2500); }
+    if (!this.solo && !localStorage.getItem("tb_seen_help")) { localStorage.setItem("tb_seen_help", "1"); setTimeout(() => this.help.toggle(), 2500); }
   }
 
-  private get overlayOpen() { return this.help?.visible || this.squadPicker?.visible; }
+  private get overlayOpen() { return this.help?.visible || this.squadPicker?.visible || this.pause?.visible || !!this.campaign?.busy || !!this.cinematic; }
+
+  // ======================================================================= solo
+  private setupSolo(net: SoloNet, replayChapter?: number) {
+    const ui = this.uiRoot;
+    this.solo = net;
+    this.dialogue = new Dialogue(ui);
+    this.chapters = new ChapterScreens(ui);
+    this.pause = new PauseMenu(ui);
+    this.el(".chat")?.classList.add("hidden");
+    this.board.setSolo(true);
+    this.hud.setSolo(true);
+    this.pause.onResume = () => this.setPaused(false);
+    this.pause.onSettings = (s) => this.applySettings(s);
+    this.pause.onQuit = () => { net.persist(); location.href = location.pathname; };
+    this.pause.onChapters = () => chapterSelect(ui, net.save, (id) => { net.persist(); location.href = `${location.pathname}?solo=1&chapter=${id}${this.dev ? "&dev=1" : ""}`; });
+    const campaign = new Campaign(net, {
+      dialogue: (lines, done, title) => this.dialogue.show(lines, done, title),
+      chapterStart: (def) => { this.chapters.showBanner(def); this.hud.setRoom(def ? `CH.${def.id}` : "FREE", false); },
+      chapterComplete: (r, next) => { this.fishing?.cancel(); this.chapters.showComplete(r, next); },
+      ending: (done) => this.chapters.showCredits(done),
+      toast: (html, cls) => this.feed.toast(html, cls ?? "", 3200),
+      bossIntro: (m) => {
+        this.cinematic = { x: m.x, z: m.z, t: 0, dur: 3.2 };
+        sfx.roar(true);
+        this.chase.shake(0.6);
+        this.feed.announce(`BOSS: ${MONSTERS[m.kind].name}`, "#ff4fd8", "☠", true);
+      },
+    });
+    this.campaign = campaign;
+    window.addEventListener("pagehide", () => net.persist());
+    if (this.dev) this.feed.toast("DEV: K storm · N monster · G gust · J complete chapter", "", 5000);
+    campaign.start(replayChapter);
+  }
+
+  private el(sel: string) { return this.uiRoot.querySelector(sel); }
+
+  private setPaused(p: boolean) {
+    if (!this.solo) return;
+    if (p) this.pause.show(); else this.pause.hide();
+  }
   private get me(): PlayerS | undefined { return this.net?.state?.players?.get(this.net.sessionId); }
 
   private onKey(code: string) {
@@ -238,23 +301,26 @@ export class Game {
         if (this.help.visible) this.help.hide();
         else if (this.squadPicker.visible) this.squadPicker.hide();
         else if (this.board.visible) this.board.hide();
+        else if (this.solo && this.pause.visible) this.setPaused(false);
+        else if (this.solo && (this.fishing?.phase ?? "idle") === "idle" && !this.campaign?.busy) this.setPaused(true);
         else this.fishing?.cancel();
         break;
       case "KeyF": this.fireHarpoon(); break;
       case "KeyH": this.help.toggle(); break;
-      case "KeyQ": this.squadPicker.visible ? this.squadPicker.hide() : this.squadPicker.show(); break;
+      case "KeyQ": if (!this.solo) this.squadPicker.visible ? this.squadPicker.hide() : this.squadPicker.show(); break;
       case "KeyM": { sfx.toggleMute(); break; }
-      case "Enter": setTimeout(() => this.chat.focus(), 0); break;
+      case "Enter": if (!this.solo) setTimeout(() => this.chat.focus(), 0); break;
       case "Tab":
         this.tabDownAt = performance.now();
         if (this.board.visible && this.board.pinned) this.board.hide();
         else { this.board.pinned = false; this.board.show(); }
         break;
     }
-    if (net instanceof OfflineNet) {
+    if (net instanceof SoloNet && this.dev) {
       if (code === "KeyK") net.toggleStorm();
-      if (code === "KeyN") net.spawnMonster();
+      if (code === "KeyN") net.spawnMonster(zoneAt(this.local.x, this.local.z) === "abyss" ? "kraken" : "serpent");
       if (code === "KeyG") net.gust();
+      if (code === "KeyJ") this.campaign?.completeNow();
     }
   }
 
@@ -389,6 +455,7 @@ export class Game {
     const dt = Math.min(0.05, this.clock.getDelta());
     this.time += dt;
     const net = this.net;
+    if (this.solo) this.solo.paused = !!(this.pause?.visible || this.campaign?.busy || this.cinematic);
     net?.tick(dt);
     const state = net?.state;
     const meId = net?.sessionId ?? "";
@@ -411,7 +478,8 @@ export class Game {
       const throttle = this.input.axis(["KeyS", "ArrowDown"], ["KeyW", "ArrowUp"]);
       const steer = this.input.axis(["KeyD", "ArrowRight"], ["KeyA", "ArrowLeft"]);
       const reelSlow = this.fishing?.reeling ? 0.35 : 1;
-      this.local.update(dt, throttle * reelSlow, steer, wind, canDrive);
+      if (!this.solo?.paused) this.local.update(dt, throttle * reelSlow, steer, wind, canDrive);
+      this.enforceLockedZones(me);
       this.moveAcc += dt;
       if (this.moveAcc >= 1 / MOVE_SEND_HZ && !me.sunk) {
         this.moveAcc = 0;
@@ -466,7 +534,18 @@ export class Game {
 
     // ---- camera + world
     const myBoat = this.boats.get(meId);
-    if (myBoat && me) {
+    if (this.cinematic && myBoat) {
+      const c = this.cinematic;
+      c.t += dt;
+      const k = Math.min(1, c.t / 0.8);
+      const bx = myBoat.position.x, bz = myBoat.position.z;
+      const mx = c.x, mz = c.z;
+      const dx = mx - bx, dz = mz - bz, d = Math.hypot(dx, dz) || 1;
+      const cx = bx - (dx / d) * 18, cz = bz - (dz / d) * 18;
+      this.camera.position.lerp(this.tmp2.set(cx, 9 + k * 4, cz), 1 - Math.exp(-4 * dt));
+      this.camera.lookAt(mx, 6, mz);
+      if (c.t >= c.dur) this.cinematic = null;
+    } else if (myBoat && me) {
       const focus = myBoat.position;
       this.chase.update(dt, focus, this.local.rot, Math.abs(this.local.speed) > 2 || this.fishing?.busy === true);
       const [dx, dy] = this.input.consumeDrag();
@@ -482,6 +561,10 @@ export class Game {
     }
     const focus = myBoat ? myBoat.position : this.tmp.set(DOCK_POS.x, 0, DOCK_POS.z);
     this.world.update(dt, this.time, focus, this.camera.position, wind?.speed ?? 0.3, storm);
+    if (this.solo) {
+      this.barriers.setLocked(!this.solo.zonesOpen.reef, !this.solo.zonesOpen.abyss);
+      this.barriers.update(this.time, this.camera.position);
+    }
     this.fx.update(dt, this.time, this.camera.position, wind?.dirRad ?? 0, wind?.speed ?? 0.3, this.world.sky.storm);
     sfx.setRain(this.world.sky.storm);
     if (storm !== this.lastStorm) { this.lastStorm = storm; }
@@ -495,19 +578,26 @@ export class Game {
         this.hud.zone(zoneAt(this.local.x, this.local.z));
         this.hud.setLowHp(!me.sunk && me.hp < BOAT_MAX_HP * 0.25);
         if (me.sunk) this.hud.setSunkCountdown((RESPAWN_MS - (performance.now() - this.sunkAt)) / 1000);
-        const squad: SquadS | undefined = state?.squads?.get(me.squad);
-        this.missions.update(arr(me.missions), squad ? arr(squad.missions) : [], SQUADS[me.squad]?.color ?? "#fff");
         const st = this.fishing?.phase ?? "idle";
+        if (this.campaign) {
+          this.campaign.update(dt, me);
+          this.missions.update(arr(me.missions), [], "#ffd24a", { label: this.campaign.trackerLabel, items: this.campaign.trackerItems() });
+          this.hud.setHint(this.campaign.tutorialHint(me, st));
+        } else {
+          const squad: SquadS | undefined = state?.squads?.get(me.squad);
+          this.missions.update(arr(me.missions), squad ? arr(squad.missions) : [], SQUADS[me.squad]?.color ?? "#fff");
+        }
         this.hud.setStatus(me.state === "stunned" ? "STUNNED" : st === "waiting" ? "Waiting for a bite…  (Esc to reel in)" : st === "casting" ? "Casting…" : "");
       }
       const players: PlayerS[] = [];
       mapEach<PlayerS>(state?.players, (p) => players.push(p));
       const mons: MonsterS[] = [];
       mapEach<MonsterS>(state?.monsters, (m) => mons.push(m));
-      this.minimap.update(dt, players, meId, mons, me ? { x: this.local.x, z: this.local.z, rot: this.local.rot } : null);
+      this.minimap.update(dt, players, meId, mons, me ? { x: this.local.x, z: this.local.z, rot: this.local.rot } : null, this.campaign?.lockedBorder()?.r);
+      this.updateBossBar(mons);
       const squads: SquadS[] = [];
       mapEach<SquadS>(state?.squads as any, (s) => squads.push(s));
-      this.board.update(dt, players, squads, meId);
+      this.board.update(dt, players, squads, meId, this.solo ? { save: this.solo.save, chapterLabel: this.campaign?.trackerLabel ?? "" } : undefined);
       this.squadPicker.update(players, meId);
       this.reveal.update(dt);
       const harpoonAim = !!me && !me.sunk;
@@ -517,6 +607,31 @@ export class Game {
     this.renderer.render(this.scene, this.camera);
     this.labels.update(dt, this.camera, window.innerWidth, window.innerHeight);
     this.fpsTick(dt);
+  }
+
+  /** solo: push the boat back from locked zone borders */
+  private enforceLockedZones(me: PlayerS) {
+    const lock = this.campaign?.lockedBorder();
+    if (!lock || me.sunk) return;
+    const r = Math.hypot(this.local.x - DOCK_POS.x, this.local.z - DOCK_POS.z);
+    const max = lock.r - 4;
+    if (r > max) {
+      const k = (max - 1.5) / r;
+      this.local.x = DOCK_POS.x + (this.local.x - DOCK_POS.x) * k;
+      this.local.z = DOCK_POS.z + (this.local.z - DOCK_POS.z) * k;
+      this.local.speed = -Math.abs(this.local.speed) * 0.4;
+      if (performance.now() - this.lockToastAt > 3000) {
+        this.lockToastAt = performance.now();
+        this.feed.toast(`<b>🔒 Locked:</b> complete Chapter ${lock.chapter - 1} to sail further`, "bad", 2600);
+        this.chase.shake(0.25);
+        sfx.hit();
+      }
+    }
+  }
+
+  private updateBossBar(mons: MonsterS[]) {
+    const boss = mons.find((m) => MONSTERS[m.kind]?.boss && m.state !== "submerged");
+    this.hud.setBoss(boss ? { name: MONSTERS[boss.kind].name, hp: boss.hp, maxHp: boss.maxHp || MONSTERS[boss.kind].hp } : null);
   }
 
   private fpsTick(dt: number) {

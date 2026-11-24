@@ -1,9 +1,10 @@
 /** Leaderboard panel (Tab): squad leaderboard, trophy wall, hall of fame. */
-import { SQUADS, SQUAD_IDS, SPECIES_BY_ID, TIER_INFO, type PlayerS, type SquadS, type FishCardS, type SquadId } from "@freek/shared";
+import { SQUADS, SQUAD_IDS, SPECIES_BY_ID, TIER_INFO, CHAPTERS, ZONES, type PlayerS, type SquadS, type FishCardS, type SquadId } from "@freek/shared";
 import { h, escapeHtml, fmtKg, arr } from "../util";
 import { fishSvg } from "./hud";
+import type { SoloSave } from "../solo/save";
 
-type Tab = "squads" | "trophies" | "hof";
+type Tab = "squads" | "trophies" | "hof" | "campaign";
 
 export function fishChip(c: FishCardS | undefined): string {
   if (!c) return `<span class="fish-chip none">no catch yet</span>`;
@@ -26,16 +27,27 @@ export class Leaderboard {
 
   constructor(root: HTMLElement) {
     const mk = (t: Tab, label: string) => h("button.lb-tab", { onclick: () => this.setTab(t) }, label);
-    this.tabs = { squads: mk("squads", "Squad Leaderboard"), trophies: mk("trophies", "Trophy Wall"), hof: mk("hof", "Hall of Fame") };
+    this.tabs = { squads: mk("squads", "Squad Leaderboard"), trophies: mk("trophies", "Trophy Wall"), hof: mk("hof", "Hall of Fame"), campaign: mk("campaign", "Campaign") };
+    this.tabs.campaign.style.display = "none";
     this.body = h("div.lb-body");
     this.el = h("div.leaderboard", null, h("div.lb-panel", null,
-      h("div.lb-tabs", null, this.tabs.squads, this.tabs.trophies, this.tabs.hof, h("button.icon-btn.lb-close", { onclick: () => this.hide(), title: "Close" }, "✕")),
+      h("div.lb-tabs", null, this.tabs.squads, this.tabs.trophies, this.tabs.hof, this.tabs.campaign, h("button.icon-btn.lb-close", { onclick: () => this.hide(), title: "Close" }, "✕")),
       this.body,
       h("div.lb-foot", null, "Hold TAB to peek · tap TAB to pin"),
     ));
     this.body.addEventListener("click", (e) => this.onClick(e));
     root.append(this.el);
     this.setTab("squads");
+  }
+
+  private solo = false;
+  /** solo: Trophy Wall + Solo Hall of Fame + Campaign progress (no squads) */
+  setSolo(solo: boolean) {
+    this.solo = solo;
+    this.tabs.squads.style.display = solo ? "none" : "";
+    this.tabs.campaign.style.display = solo ? "" : "none";
+    this.tabs.hof.textContent = solo ? "Solo Hall of Fame" : "Hall of Fame";
+    if (solo) this.setTab("trophies");
   }
 
   setHallOfFame(entries: FishCardS[]) { this.hof = entries ?? []; this.sig = ""; }
@@ -61,7 +73,7 @@ export class Leaderboard {
     }
   }
 
-  update(dt: number, players: PlayerS[], squads: SquadS[], meId: string) {
+  update(dt: number, players: PlayerS[], squads: SquadS[], meId: string, solo?: { save: SoloSave; chapterLabel: string }) {
     if (!this.visible) return;
     this.acc += dt;
     if (this.acc < 0.25 && this.sig) return;
@@ -69,6 +81,7 @@ export class Leaderboard {
     let html = "";
     if (this.tab === "squads") html = this.renderSquads(players, squads, meId);
     else if (this.tab === "trophies") html = this.renderTrophies(players, meId);
+    else if (this.tab === "campaign") html = solo ? this.renderCampaign(solo.save, solo.chapterLabel, players.find((p) => p.id === meId)) : "";
     else html = this.renderHof();
     if (html !== this.sig) { this.sig = html; this.body.innerHTML = html; }
   }
@@ -108,11 +121,28 @@ export class Leaderboard {
   private renderTrophies(players: PlayerS[], meId: string): string {
     const id = this.trophyPlayer && players.some((p) => p.id === this.trophyPlayer) ? this.trophyPlayer : meId;
     const p = players.find((x) => x.id === id);
-    const picker = players.map((x) => `<button class="tp-chip ${x.id === id ? "active" : ""}" data-player="${escapeHtml(x.id)}" style="--sq:${SQUADS[x.squad]?.color ?? "#fff"}">${escapeHtml(x.name)}</button>`).join("");
+    const picker = this.solo ? "" : players.map((x) => `<button class="tp-chip ${x.id === id ? "active" : ""}" data-player="${escapeHtml(x.id)}" style="--sq:${SQUADS[x.squad]?.color ?? "#fff"}">${escapeHtml(x.name)}</button>`).join("");
     const cards = p ? arr(p.trophies) : [];
     return `<div class="tp-picker">${picker}</div>
       <div class="trophy-title">${p ? `${escapeHtml(p.name)}'s trophies` : "Trophies"}</div>
       <div class="trophy-wall">${cards.length ? cards.map((c) => trophyCard(c)).join("") : `<div class="room-empty">No trophies yet — go catch something!</div>`}</div>`;
+  }
+
+  private renderCampaign(save: SoloSave, label: string, me?: PlayerS): string {
+    const total = Object.values(save.stars).reduce((a, b) => a + b, 0);
+    const fmt = (s?: number) => (s === undefined || !isFinite(s) ? "-" : `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`);
+    const rows = CHAPTERS.map((c) => {
+      const st = save.stars[c.id] ?? 0;
+      const status = c.id < save.chapter ? "done" : c.id === save.chapter ? "current" : "locked";
+      return `<div class="cp-row ${status}"><span class="rank">${c.id}</span><span class="cp-title">${escapeHtml(c.title)}<small>${ZONES[c.zone].name}</small></span>
+        <span class="stars">${[1, 2, 3].map((i) => `<i class="${i <= st ? "on" : ""}">★</i>`).join("")}</span>
+        <span class="cp-time">${status === "done" ? fmt(save.bestTimes[c.id]) : status === "current" ? "in progress" : "🔒"}</span></div>`;
+    }).join("");
+    return `<div class="cp-head"><div><b>${escapeHtml(label)}</b><br/><small>${total} / ${CHAPTERS.length * 3} stars</small></div>
+      <div class="cp-stats"><span>Lv ${me?.level ?? save.level}</span><span>${me?.catches ?? save.catches} fish</span><span>${me?.bankedPoints ?? save.bankedPoints} banked</span><span>● ${me?.coins ?? save.coins}</span></div></div>
+      <div class="cp-list">${rows}</div>
+      <div class="cp-unlocks">${[["Reef", save.unlocks.reef], ["Abyss", save.unlocks.abyss], ["Harpoon +10", save.unlocks.harpoonUpgrade], ["Legendary rod", save.unlocks.legendaryRod]]
+        .map(([n, on]) => `<span class="${on ? "on" : ""}">${on ? "🔓" : "🔒"} ${n}</span>`).join("")}</div>`;
   }
 
   private renderHof(): string {

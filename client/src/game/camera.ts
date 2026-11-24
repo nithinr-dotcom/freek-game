@@ -6,6 +6,7 @@ export class ChaseCamera {
   yawOffset = 0;
   pitch = 0.32;
   dist = 17;
+  sensitivity = 1;
   private yaw = 0;
   private target = new THREE.Vector3();
   private trauma = 0;
@@ -15,8 +16,8 @@ export class ChaseCamera {
   constructor(public readonly camera: THREE.PerspectiveCamera) {}
 
   orbit(dx: number, dy: number) {
-    this.yawOffset -= dx * 0.005;
-    this.pitch = clamp(this.pitch + dy * 0.004, 0.08, 1.25);
+    this.yawOffset -= dx * 0.005 * this.sensitivity;
+    this.pitch = clamp(this.pitch + dy * 0.004 * this.sensitivity, 0.08, 1.25);
     this.idle = 0;
   }
   zoom(steps: number) { this.dist = clamp(this.dist * (1 + steps * 0.1), 8, 60); }

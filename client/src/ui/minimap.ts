@@ -50,7 +50,7 @@ export class Minimap {
     c.restore();
   }
 
-  update(dt: number, players: PlayerS[], meId: string, monsters: MonsterS[], me: { x: number; z: number; rot: number } | null) {
+  update(dt: number, players: PlayerS[], meId: string, monsters: MonsterS[], me: { x: number; z: number; rot: number } | null, lockedR?: number) {
     this.t += dt;
     const c = this.ctx, s = this.size, r = s / 2;
     c.clearRect(0, 0, s, s);
@@ -66,6 +66,16 @@ export class Minimap {
       c.restore();
     } else c.drawImage(this.bg, 0, 0, s, s);
     const tx = (x: number) => r + (x - cx) * k, tz = (z: number) => r + (z - cz) * k;
+    if (lockedR) {
+      // shade locked zones (everything beyond the barrier)
+      c.save();
+      c.beginPath(); c.rect(0, 0, s, s); c.arc(tx(DOCK_POS.x), tz(DOCK_POS.z), lockedR * k, 0, Math.PI * 2, true);
+      c.fillStyle = "rgba(10,10,20,0.62)"; c.fill();
+      c.strokeStyle = "#ff3b30"; c.lineWidth = 2; c.setLineDash([4, 3]);
+      c.beginPath(); c.arc(tx(DOCK_POS.x), tz(DOCK_POS.z), lockedR * k, 0, Math.PI * 2); c.stroke();
+      c.setLineDash([]);
+      c.restore();
+    }
     // dock ring
     c.strokeStyle = "#ffd76a"; c.lineWidth = 2;
     c.beginPath(); c.arc(tx(DOCK_POS.x), tz(DOCK_POS.z), Math.max(3, DOCK_RADIUS * k), 0, Math.PI * 2); c.stroke();

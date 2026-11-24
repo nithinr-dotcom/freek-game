@@ -3,7 +3,7 @@ import { h } from "../util";
 
 export class Help {
   readonly el: HTMLElement;
-  constructor(root: HTMLElement, offline: boolean) {
+  constructor(root: HTMLElement, dev: boolean) {
     const row = (k: string, d: string) => `<div class="hk"><span class="keys">${k}</span><span>${d}</span></div>`;
     this.el = h("div.overlay.help", { onclick: (e: MouseEvent) => { if (e.target === this.el) this.hide(); } }, h("div.modal", { html: `
       <h2>How to play</h2>
@@ -28,7 +28,7 @@ export class Help {
           ${row("Q", "Change squad")}
           ${row("M", "Mute sound")}
           ${row("H", "This help")}
-          ${offline ? `<h4>Sandbox</h4>${row("K", "Toggle storm")}${row("N", "Spawn monster")}${row("G", "Wind gust")}` : ""}
+          ${dev ? `<h4>Dev (?dev=1)</h4>${row("K", "Toggle storm")}${row("N", "Spawn monster")}${row("G", "Wind gust")}${row("J", "Complete chapter")}` : ""}
         </div>
       </div>
       <p class="help-tip">Bank your catch by sailing into the <b>golden ring</b> at the dock. Sink and you lose everything unbanked!</p>

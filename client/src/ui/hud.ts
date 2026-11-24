@@ -22,6 +22,9 @@ export class Hud {
   private sunkOverlay: HTMLElement; private sunkCount: HTMLElement;
   private crosshair: HTMLElement;
   private statusLine: HTMLElement;
+  private hint: HTMLElement;
+  private boss: HTMLElement; private bossFill: HTMLElement; private bossName: HTMLElement; private bossHp: HTMLElement;
+  private codeLbl!: HTMLElement;
   private lastHp = -1;
   private lastLevel = -1;
   private lastZone: ZoneId | "" = "";
@@ -68,6 +71,10 @@ export class Hud {
     this.sunkCount = h("div.sunk-count");
     this.sunkOverlay = h("div.sunk-overlay", null, h("div.sunk-title", null, "SUNK!"), h("div.sunk-sub", null, "Your unbanked catch is lost to the deep…"), this.sunkCount);
     this.statusLine = h("div.status-line");
+    this.hint = h("div.tutorial-hint");
+    this.bossFill = h("div.boss-fill"); this.bossName = h("div.boss-name"); this.bossHp = h("div.boss-hp");
+    this.boss = h("div.boss-bar", null, this.bossName, h("div.boss-track", null, this.bossFill, this.bossHp));
+    this.codeLbl = h("span.code-lbl", null, "ROOM");
 
     const muteBtn = h("button.icon-btn", { title: "Mute (M)", onclick: () => { const m = this.onMute?.(); muteBtn.textContent = m ? "🔇" : "🔊"; } }, localStorage.getItem("tb_muted") === "1" ? "🔇" : "🔊");
     this.el = h("div.hud", null,
@@ -77,7 +84,7 @@ export class Hud {
         h("div.p-bottom", null, h("span.coin-icon", null, "●"), this.coins, this.squadBtn),
       ),
       h("div.panel.room-code", null,
-        h("span.code-lbl", null, "ROOM"), this.codeEl,
+        this.codeLbl, this.codeEl,
         h("button.icon-btn.copy", { title: "Copy room code", onclick: (e: MouseEvent) => this.copyCode(e.currentTarget as HTMLElement) }, "⧉"),
       ),
       h("div.top-buttons", null,
@@ -93,6 +100,8 @@ export class Hud {
       this.prompt,
       this.cooldown,
       this.statusLine,
+      this.hint,
+      this.boss,
     );
     root.append(this.vignette, this.crosshair, this.el, this.sunkOverlay);
   }
@@ -194,6 +203,26 @@ export class Hud {
     this.promptTimer = seconds;
   }
   hidePrompt() { this.prompt.classList.remove("show"); this.promptTimer = 0; }
+
+  setSolo(solo: boolean) {
+    this.el.classList.toggle("solo", solo);
+    this.codeLbl.textContent = solo ? "SOLO" : "ROOM";
+    this.codeEl.parentElement!.classList.toggle("solo", solo);
+  }
+  private hintText = "";
+  setHint(text: string) {
+    if (text === this.hintText) return;
+    this.hintText = text;
+    this.hint.innerHTML = text ? `<span class="th-icon">💡</span>${text}` : "";
+    this.hint.classList.toggle("show", !!text);
+  }
+  setBoss(b: { name: string; hp: number; maxHp: number } | null) {
+    this.boss.classList.toggle("show", !!b);
+    if (!b) return;
+    setText(this.bossName, `☠ ${b.name}`);
+    this.bossFill.style.width = `${Math.max(0, Math.min(1, b.hp / b.maxHp)) * 100}%`;
+    setText(this.bossHp, `${Math.ceil(b.hp)} / ${b.maxHp}`);
+  }
 
   setStatus(text: string) { setText(this.statusLine, text); this.statusLine.classList.toggle("show", !!text); }
 
