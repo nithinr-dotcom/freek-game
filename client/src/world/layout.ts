@@ -81,7 +81,12 @@ export function resolveObstacles(p: { x: number; z: number }, radius = 2.2): boo
 export interface LayoutData {
   islands: IslandDef[]; rocks: RockDef[]; buoys: { x: number; z: number; zone: "reef" | "abyss" }[]; obstacles: Obstacle[];
   lighthouse: { x: number; z: number; r: number }; pier: { x0: number; x1: number; z: number; w: number };
+  /** P2: extra marks on the minimap background (coral walls, …) */
+  mapDots?: MapDot[];
 }
+export interface MapDot { x: number; z: number; r: number; color: string }
+/** minimap background marks of the active layout (empty on the original map) */
+export const MAP_DOTS: MapDot[] = [];
 /** the original map (Shallows Bay; also the multiplayer ocean) */
 export const DEFAULT_LAYOUT: LayoutData = {
   islands: ISLANDS.slice(), rocks: ROCKS.slice(), buoys: BUOYS.slice(), obstacles: OBSTACLES.slice(),
@@ -93,7 +98,7 @@ export const DEFAULT_LAYOUT: LayoutData = {
  */
 export function useLayout(l: LayoutData) {
   const swap = <T>(a: T[], b: T[]) => { a.length = 0; a.push(...b); };
-  swap(ISLANDS, l.islands); swap(ROCKS, l.rocks); swap(BUOYS, l.buoys); swap(OBSTACLES, l.obstacles);
+  swap(ISLANDS, l.islands); swap(ROCKS, l.rocks); swap(BUOYS, l.buoys); swap(OBSTACLES, l.obstacles); swap(MAP_DOTS, l.mapDots ?? []);
   Object.assign(LIGHTHOUSE_POS, l.lighthouse); Object.assign(PIER, l.pier);
 }
 /** add a solid circle (landmarks) */

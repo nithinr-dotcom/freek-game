@@ -4,6 +4,8 @@
  */
 import type { BossDef, MonsterS } from "@freek/shared";
 import type { MonsterController, SoloNet } from "../SoloNet";
+import type { MonsterRig } from "../../entities/monsterModels";
+import type { ObjEvent } from "../objectives";
 
 /** effects a boss can trigger (implemented by the game) */
 export interface BossFx {
@@ -14,6 +16,15 @@ export interface BossFx {
   splash(x: number, z: number, size: number): void;
   attackAnim(): void;
   announce(text: string): void;
+  // ---- P2 (optional; implemented by SoloMode)
+  /** custom model and/or name tag for a boss or boss part (rig null keeps the model) */
+  dress?(monsterId: string, rig: MonsterRig | null, name: string, opts?: { labelY?: number; aimY?: number; cls?: string }): void;
+  spark?(x: number, y: number, z: number, color: string, count?: number): void;
+  /** floating text at a world point (cls: "dmg" | "hit" | "pts" | …) */
+  float?(text: string, x: number, y: number, z: number, cls?: string): void;
+  /** full-screen tint (ink clouds, …); alpha 0 clears it */
+  tint?(color: string, alpha: number): void;
+  toast?(html: string, cls?: string): void;
 }
 
 export interface BossEnv {
@@ -25,6 +36,8 @@ export interface BossEnv {
   startPhase: number;
   /** called when the boss enters a new phase (checkpoint + UI pips) */
   onPhase(phase: number): void;
+  /** objective events (e.g. { t: "flag", flag } for boss-specific optional rules) */
+  emit?(ev: ObjEvent): void;
 }
 
 export abstract class BossBehaviour implements MonsterController {
