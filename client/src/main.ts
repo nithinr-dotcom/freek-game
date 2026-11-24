@@ -9,6 +9,8 @@ import { installDevApi } from "./solo/dev";
 import { Lobby, type SoloAction } from "./ui/lobby";
 import { Assets } from "./world/assets";
 import { sfx } from "./audio";
+import { todayKey } from "@freek/shared";
+import type { EndlessOpts } from "./endless/EndlessMode";
 
 async function boot() {
   const canvas = document.getElementById("game-canvas") as HTMLCanvasElement;
@@ -46,8 +48,16 @@ async function boot() {
     if (dev) installDevApi(game);
   };
   const saveOrNew = () => loadSave() ?? newSave(localStorage.getItem("tb_name") || "Captain");
+  /** Endless Tide: a throwaway save (the campaign save is never written) on the original map */
+  const startEndless = (o: EndlessOpts) => {
+    const save = newSave(localStorage.getItem("tb_name") || loadSave()?.name || "Captain");
+    game.attach(new SoloNet(save), { endless: o });
+  };
 
-  if (soloUrl) {
+  if (params.get("endless") === "1") {
+    const daily = params.get("daily") === "1" ? todayKey() : null;
+    startEndless({ captain: params.get("captain") ?? "marlow", danger: Number(params.get("danger")) || 0, daily, resume: params.get("resume") === "1" });
+  } else if (soloUrl) {
     const save = saveOrNew();
     save.campaign.region = loadedRegion;
     const ch = Number(params.get("chapter")) || undefined;
@@ -61,6 +71,7 @@ async function boot() {
         if (c) s.campaign.region = c.region;
         startSolo(s, a.id);
       } else if (a.type === "region") { const s = saveOrNew(); s.campaign.region = a.region; s.campaign.current = null; startSolo(s, -1); }
+      else if (a.type === "endless") startEndless({ captain: a.start.captain, danger: a.start.danger, daily: a.start.daily ? todayKey() : null, resume: a.start.resume });
     });
   }
   (window as any).__game = game;

@@ -43,6 +43,7 @@ import type { World } from "../world/world";
 import type { Boat } from "../entities/Boat";
 import type { MonsterEntity } from "../entities/Monster";
 import { sfx } from "../audio";
+import type { SoloModeLike } from "./modeLike";
 import { h } from "../util";
 
 export interface SoloGameCtx {
@@ -55,7 +56,7 @@ export interface SoloGameCtx {
   dev: boolean;
 }
 
-export class SoloMode {
+export class SoloMode implements SoloModeLike {
   readonly region: RegionDef;
   readonly clock: SoloClock;
   readonly runner: ChapterRunner;
@@ -526,6 +527,7 @@ export class SoloMode {
     return [...lm, ...this.actors.mapExtras(), ...this.env.mapExtras()];
   }
   bossBar() { return this.runner.bossBar(); }
+  lockedBorder() { return this.runner.lockedBorder(); }
   isBoss(id: string) { return this.runner.bossId === id; }
   tierColor(card: FishCardS) { return TIER_INFO[card.tier].color; }
   /** for the dev API */

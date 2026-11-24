@@ -15,16 +15,30 @@ export class PauseMenu {
   onCodex: (() => void) | null = null;
   onWorkshop: (() => void) | null = null;
   onRestart: (() => void) | null = null;
+  onAquarium: (() => void) | null = null;
+  onPhoto: (() => void) | null = null;
+  private campaignEls: HTMLElement[] = [];
+  private abandonBtn: HTMLElement;
 
   constructor(root: HTMLElement) {
+    const chart = h("button.tb-btn", { onclick: () => this.onChart?.() }, "🗺 Sea Chart");
+    const row = h("div.pause-row", null,
+      h("button.tb-btn", { onclick: () => this.onCodex?.() }, "📖 Codex"),
+      h("button.tb-btn", { onclick: () => this.onWorkshop?.() }, "🔨 Workshop"),
+    );
+    const restart = h("button.tb-btn.ghost", { onclick: () => this.onRestart?.() }, "↻ Restart chapter");
+    this.campaignEls = [chart, row, restart];
+    this.abandonBtn = h("button.tb-btn.ghost", { style: "display:none", onclick: () => this.onAbandon?.() }, "🏳 Abandon run");
     this.main = h("div.pause-main", null,
       h("button.tb-btn.primary.big", { onclick: () => this.onResume?.() }, "▶ Resume"),
-      h("button.tb-btn", { onclick: () => this.onChart?.() }, "🗺 Sea Chart"),
+      chart,
+      row,
       h("div.pause-row", null,
-        h("button.tb-btn", { onclick: () => this.onCodex?.() }, "📖 Codex"),
-        h("button.tb-btn", { onclick: () => this.onWorkshop?.() }, "🔨 Workshop"),
+        h("button.tb-btn", { onclick: () => this.onAquarium?.() }, "🐠 Aquarium"),
+        h("button.tb-btn", { onclick: () => this.onPhoto?.() }, "📸 Photo (P)"),
       ),
-      h("button.tb-btn.ghost", { onclick: () => this.onRestart?.() }, "↻ Restart chapter"),
+      restart,
+      this.abandonBtn,
       h("button.tb-btn", { onclick: () => this.showSettings(true) }, "Settings"),
       h("button.tb-btn.ghost", { onclick: () => this.onQuit?.() }, "Quit to lobby"),
     );
@@ -35,6 +49,14 @@ export class PauseMenu {
     this.el = h("div.overlay.pause-menu", null, h("div.modal.small", null, h("h2", null, "Paused"), h("p.sub", null, "Progress is saved automatically."), this.main, this.settingsEl));
     root.append(this.el);
     this.showSettings(false);
+  }
+  private onAbandon: (() => void) | null = null;
+  /** Endless Tide: no chart/codex/workshop/restart; an abandon button instead */
+  configureEndless(onAbandon: () => void) {
+    this.onAbandon = onAbandon;
+    for (const e of this.campaignEls) e.style.display = "none";
+    this.abandonBtn.style.display = "";
+    this.el.querySelector(".sub")!.textContent = "The run is saved between tides.";
   }
   private showSettings(v: boolean) { this.main.style.display = v ? "none" : ""; this.settingsEl.style.display = v ? "" : "none"; }
   show() { this.showSettings(false); this.el.classList.add("show"); }

@@ -12,10 +12,15 @@ import { openWorkshop } from "./workshop";
 import { openCodex } from "./codex";
 import { totalCompletion } from "../solo/codex";
 import { MARLOW_SVG } from "./dialogue";
+import { openEndlessMenu, openDaily, openAlmanac, type EndlessStart } from "../endless/menu";
+import { loadMeta } from "../endless/meta";
+import { openHarbour, harbourLabel } from "../endless/harbour";
+import { openAquarium } from "./aquarium";
+import { CAPTAINS_BY_ID, todayKey } from "@freek/shared";
 
 const NAME_KEY = "tb_name";
 
-export type SoloAction = { type: "continue" } | { type: "new"; name: string } | { type: "chapter"; id: number } | { type: "region"; region: RegionId };
+export type SoloAction = { type: "continue" } | { type: "new"; name: string } | { type: "chapter"; id: number } | { type: "region"; region: RegionId } | { type: "endless"; start: EndlessStart };
 
 export class Lobby {
   readonly el: HTMLElement;
@@ -80,7 +85,7 @@ export class Lobby {
           h("label.lbl", null, "Your name"),
           this.nameInput,
         ),
-        h("div.mode-grid", null, this.soloCard(), this.mpCard),
+        h("div.mode-grid.three", null, this.soloCard(), this.endlessCard(), this.mpCard),
         this.err,
         h("div.lobby-foot", null, h("span", null, "Press H in game for controls")),
       ),
@@ -115,6 +120,7 @@ export class Lobby {
       const extras = save ? h("div.solo-extras", null,
         h("button.tb-btn.ghost.small", { onclick: () => openSeaChart(this.root, { save, onPlay: (id) => this.soloGo({ type: "chapter", id }), onFreeRoam: (region) => this.soloGo({ type: "region", region }) }) }, "🗺 Sea Chart"),
         h("button.tb-btn.ghost.small", { onclick: () => openCodex(this.root, save) }, "📖 Codex"),
+        h("button.tb-btn.ghost.small", { onclick: () => openAquarium(this.root) }, "🐠 Aquarium"),
         h("button.tb-btn.ghost.small", { onclick: () => openWorkshop(this.root, { save, coins: () => save.coins, spend: (n) => { save.coins -= n; }, xp: () => save.xp, atDock: true, onChanged: () => { writeSave(save); } }) }, "🔨 Workshop"),
       ) : null;
       card.append(
@@ -127,6 +133,28 @@ export class Lobby {
     };
     render(save);
     return card;
+  }
+
+  private endlessCard(): HTMLElement {
+    const meta = loadMeta();
+    const best = meta.stats.bestTide ?? 0;
+    const today = meta.daily[todayKey()];
+    const start = (s: EndlessStart) => { const n = this.name; if (n) localStorage.setItem(NAME_KEY, n); this.soloGo({ type: "endless", start: s }); };
+    const run = meta.run;
+    return h("div.mode-card.endless-card", null,
+      h("div.mode-head", null, h("span.mode-icon", null, "🌊"), h("div", null, h("div.mode-kicker", null, "SINGLE PLAYER · ROGUELITE"), h("div.mode-title", null, "Endless Tide"))),
+      h("div.solo-progress", { html: `Survive waves of fish and monsters, cash in, shop for rigs, merge, repeat. <div class="sp-meta"><span>🌊 Best tide ${best}</span><span>🏆 Wins ${meta.stats.wins ?? 0}</span><span>📅 Today ${today ? today.best : "—"}</span></div>${run ? `<div class="sp-chapter">⏸ ${escapeHtml(CAPTAINS_BY_ID[run.captain]?.name ?? "")} · tide ${run.tide} in progress</div>` : ""}` }),
+      h("div.solo-buttons", null,
+        run ? h("button.tb-btn.primary.big", { onclick: () => { sfx.unlock(); start({ captain: run.captain, danger: run.danger, daily: !!run.daily, resume: true }); } }, "▶ Resume run") : null,
+        h(`button.tb-btn${run ? "" : ".primary.big"}`, { onclick: () => { sfx.unlock(); openEndlessMenu(this.root, start); } }, run ? "New run" : "▶ Play"),
+      ),
+      h("div.solo-extras", null,
+        h("button.tb-btn.ghost.small", { onclick: () => openDaily(this.root, () => start({ captain: "marlow", danger: 1, daily: true, resume: false })) }, "📅 Daily Tide"),
+        h("button.tb-btn.ghost.small", { onclick: () => openAlmanac(this.root) }, "📚 Almanac"),
+        h("button.tb-btn.ghost.small", { title: "Spend pearls on permanent upgrades", onclick: (e: MouseEvent) => { const b = e.currentTarget as HTMLElement; openHarbour(this.root, () => { b.textContent = harbourLabel(); }); } }, harbourLabel(meta.pearls)),
+      ),
+      h("p.hint", null, "8 captains · 6 danger levels · a new tournament every day"),
+    );
   }
 
   private async newGame(hasSave: boolean) {

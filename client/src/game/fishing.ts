@@ -22,6 +22,8 @@ export class Fishing {
   onCast: (() => void) | null = null;
   /** solo campaign: behaviour + gear modifiers for the fish just hooked */
   modsProvider: (() => ReelMods | null) | null = null;
+  /** Endless: a reason the hand line can't be used right now (null = allowed) */
+  blocked: (() => string | null) | null = null;
 
   constructor(private net: GameNet, private hud: Hud, private reel: ReelGame) {
     net.on("bite", (p) => this.bite(p));
@@ -46,6 +48,8 @@ export class Fishing {
     if (this.phase === "idle") {
       if (me.state === "stunned") { this.hud.showPrompt("Stunned! Can't fish right now.", "bad", 1.5); return; }
       if (me.state !== "sailing") return;
+      const why = this.blocked?.();
+      if (why) { this.hud.showPrompt(why, "bad", 1.6); return; }
       this.setPhase("charging");
       this.chargeT = 0;
       this.power = 0;

@@ -32,6 +32,12 @@ export interface SoloHooks {
   onHarpoonHit?: (m: MonsterS, dmg: number, crit: boolean) => void;
   /** P4: monster/horror loot from the current region's campaign species (null = multiplayer table) */
   rollLoot?: (minTier: Tier, x: number, z: number) => FishRoll | null;
+  /** Endless: bite delay multiplier at the bobber (schools bite fast) */
+  biteDelayMult?: (bobX: number, bobZ: number) => number;
+  /** Endless: reel minigame duration multiplier by tier (quick reel) */
+  reelTimeMult?: (tier: Tier) => number;
+  /** Endless: monster speed multiplier (ink, slows) */
+  monsterSpeedMult?: (m: MonsterS) => number;
 }
 
 /** something monsters can attack besides the player (escort / defended NPC boats) */
@@ -88,6 +94,10 @@ export class SoloNet implements GameNet {
   extraTargets: () => MonsterTarget[] = () => [];
   /** the fish on the line right now (reel mods read it) */
   pendingRoll: FishRoll | null = null;
+  /** Endless runs never write the campaign save */
+  persistEnabled = true;
+  /** xp multiplier for fish and monster kills (Endless grants its own xp: 0) */
+  xpMult = 1;
 
   private handlers = new Map<string, Handler[]>();
   private addM: ((m: MonsterS, id: string) => void)[] = [];
@@ -148,6 +158,7 @@ export class SoloNet implements GameNet {
 
   // ---------------------------------------------------------------- persistence
   persist() {
+    if (!this.persistEnabled) return;
     const me = this.me, s = this.save;
     s.name = me.name; s.xp = me.xp; s.level = me.level; s.coins = me.coins; s.catches = me.catches;
     s.bankedPoints = me.bankedPoints; s.trophies = me.trophies.slice(); s.missions = me.missions.map((m) => ({ ...m }));
@@ -259,7 +270,7 @@ export class SoloNet implements GameNet {
           me.bobX = me.x + Math.sin(p.aimRad) * dist + Math.sin(w.dirRad) * w.speed * 4;
           me.bobZ = me.z + Math.cos(p.aimRad) * dist + Math.cos(w.dirRad) * w.speed * 4;
           me.state = "waiting";
-          const delay = (this.tutorial ? 1500 + Math.random() * 2000 : 2000 + Math.random() * 4500) * L.biteSpeed;
+          const delay = (this.tutorial ? 1500 + Math.random() * 2000 : 2000 + Math.random() * 4500) * L.biteSpeed * (this.hooks.biteDelayMult?.(me.bobX, me.bobZ) ?? 1);
           this.later(delay, () => {
             if (me.state !== "waiting" || seq !== this.castSeq) return;
             me.state = "hooked";
@@ -279,7 +290,7 @@ export class SoloNet implements GameNet {
         const roll: FishRoll = this.hooks.rollFish?.(zone, this.state.storm) ?? this.defaultRoll(zone);
         const card: FishCardS = { speciesId: roll.speciesId, tier: roll.tier, weightKg: roll.weightKg, points: roll.points, at: Date.now(), catcher: me.name };
         const diff = Math.min(1, TIER_INFO[card.tier].difficulty + this.fishDiffBonus);
-        const durationMs = Math.round(5000 + diff * 6000);
+        const durationMs = Math.round((5000 + diff * 6000) * (this.hooks.reelTimeMult?.(card.tier) ?? 1));
         this.pending = { card };
         this.pendingRoll = roll;
         me.state = "reeling";
@@ -320,7 +331,7 @@ export class SoloNet implements GameNet {
     me.catches++;
     const newBest = !best || tierRank(card.tier) > tierRank(best.tier) || (card.tier === best.tier && card.points > best.points);
     me.trophies = sortCards([...me.trophies, card]).slice(0, 10);
-    const xp = card.points * 2;
+    const xp = Math.round(card.points * 2 * this.xpMult);
     this.emit("catch", { card, zone, perfect, xp, newBest });
     this.addXp(xp);
     if (card.tier === "legendary" || card.tier === "epic") {
@@ -344,6 +355,7 @@ export class SoloNet implements GameNet {
   }
 
   addXp(xp: number) {
+    if (xp <= 0) return;
     const me = this.me;
     const before = levelFromXp(me.xp).level;
     me.xp += xp;
@@ -443,6 +455,26 @@ export class SoloNet implements GameNet {
     });
   }
 
+  /** Endless rigs: a hit that isn't the player's harpoon (fx from (sx,sz), damage after 250 ms like a harpoon) */
+  strike(m: MonsterS, dmg: number, opts: { crit?: boolean; sx?: number; sz?: number; fx?: boolean } = {}) {
+    if (!this.state.monsters.has(m.id) || m.state === "submerged") return false;
+    const scale = this.controllers.get(m.id)?.damageScale?.() ?? 1;
+    const crit = !!opts.crit || scale > 1;
+    const amount = Math.max(0, Math.round(dmg * (crit ? 2 : 1) * (scale > 1 ? scale / 2 : scale)));
+    if (opts.fx !== false) this.emit("harpoonFx", { from: "rig", sx: opts.sx ?? this.me.x, sz: opts.sz ?? this.me.z, tx: m.x, tz: m.z, hitMonster: m.id, dmg: amount });
+    const ai = this.ai.get(m.id);
+    if (ai) ai.hitters = true;
+    this.later(opts.fx === false ? 0 : 250, () => {
+      if (!this.state.monsters.has(m.id)) return;
+      if (amount > 0) m.hp = Math.max(0, m.hp - amount);
+      this.hooks.onHarpoonHit?.(m, amount, crit);
+      this.controllers.get(m.id)?.onHit?.(amount);
+      this.progress({ t: "hit", dmg: amount, monsterId: m.id });
+      if (m.hp <= 0) this.killMonster(m);
+    });
+    return true;
+  }
+
   private killMonster(m: MonsterS) {
     const ai = this.ai.get(m.id);
     const spec = MONSTERS[m.kind];
@@ -451,7 +483,7 @@ export class SoloNet implements GameNet {
     if (!boss && !ai?.quiet) this.emit("announce", { kind: "monster_kill", text: `${spec.name} was slain!`, color: "#ffd24a", x: m.x, z: m.z });
     const sq = this.state.squads.get("tide");
     if (sq) sq.kills++;
-    this.addXp(Math.round(spec.xp * (ai?.quiet ? 0.1 : 1) * this.loadout.skills.lootXpMult));
+    this.addXp(Math.round(spec.xp * (ai?.quiet ? 0.1 : 1) * this.loadout.skills.lootXpMult * this.xpMult));
     if (ai?.hitters && !boss && !ai.quiet) {
       const campaign = this.hooks.rollLoot?.(spec.lootMinTier as Tier, m.x, m.z) ?? null;
       const f = campaign ? null : soloRollFish({ zone: "abyss", rodLevel: this.me.level, storm: false, legendaryMult: this.legendaryBoost, forceMinTier: spec.lootMinTier as Tier });
@@ -574,7 +606,9 @@ export class SoloNet implements GameNet {
       if (ctl) { ctl.update(dt, now); return; }
       const ai = this.ai.get(m.id);
       if (!ai) return;
-      const spec = MONSTERS[m.kind];
+      const spec0 = MONSTERS[m.kind];
+      const sm = this.hooks.monsterSpeedMult?.(m) ?? 1;
+      const spec = sm === 1 ? spec0 : { ...spec0, speed: spec0.speed * sm };
       const tgt = this.pickTarget(m.x, m.z);
       m.targetId = tgt.id;
       const dx = tgt.x - m.x, dz = tgt.z - m.z;

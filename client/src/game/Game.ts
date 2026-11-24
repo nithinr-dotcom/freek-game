@@ -11,6 +11,12 @@ import { LocalBoat } from "./localBoat";
 import { Fishing } from "./fishing";
 import { SoloNet } from "../solo/SoloNet";
 import { SoloMode } from "./soloMode";
+import type { SoloModeLike } from "./modeLike";
+import { EndlessMode, type EndlessOpts } from "../endless/EndlessMode";
+import { Companion } from "../entities/Companion";
+import { PhotoMode } from "./photoMode";
+import { openAquarium } from "../ui/aquarium";
+import { currentCompanion } from "../endless/meta";
 import { loadSettings, type Settings } from "../solo/save";
 import { Dialogue } from "../ui/dialogue";
 import { PauseMenu } from "../ui/pauseMenu";
@@ -78,7 +84,11 @@ export class Game {
   private disconnected = false;
   // ---- solo
   private solo: SoloNet | null = null;
-  private soloMode: SoloMode | null = null;
+  private soloMode: SoloModeLike | null = null;
+  private campaign: SoloMode | null = null;
+  private endless: EndlessMode | null = null;
+  private companion: Companion | null = null;
+  private photo: PhotoMode | null = null;
   private dialogue!: Dialogue;
   private pause!: PauseMenu;
   /** slow motion (boss kill cinematic) */
@@ -144,7 +154,7 @@ export class Game {
   }
 
   // ======================================================================= attach
-  attach(net: GameNet, opts: { chapter?: number } = {}) {
+  attach(net: GameNet, opts: { chapter?: number; endless?: EndlessOpts } = {}) {
     this.net = net;
     const ui = this.uiRoot;
     this.hud = new Hud(ui);
@@ -267,7 +277,7 @@ export class Game {
     };
 
     if (net instanceof SoloNet) {
-      this.setupSolo(net, opts.chapter);
+      this.setupSolo(net, opts.chapter, opts.endless);
     } else {
       this.chat.add("", `Joined room ${net.code}. Share the code with friends!`, undefined, true);
       // squad picker right after joining
@@ -276,10 +286,10 @@ export class Game {
     if (!this.solo && !localStorage.getItem("tb_seen_help")) { localStorage.setItem("tb_seen_help", "1"); setTimeout(() => this.help.toggle(), 2500); }
   }
 
-  private get overlayOpen() { return this.help?.visible || this.squadPicker?.visible || this.pause?.visible || !!this.soloMode?.overlayOpen || !!this.cinematic; }
+  private get overlayOpen() { return this.help?.visible || this.squadPicker?.visible || this.pause?.visible || !!this.soloMode?.overlayOpen || !!this.cinematic || !!this.photo?.active; }
 
   // ======================================================================= solo
-  private setupSolo(net: SoloNet, chapter?: number) {
+  private setupSolo(net: SoloNet, chapter?: number, endless?: EndlessOpts) {
     const ui = this.uiRoot;
     this.solo = net;
     this.dialogue = new Dialogue(ui);
@@ -287,29 +297,43 @@ export class Game {
     this.el(".chat")?.classList.add("hidden");
     this.board.setSolo(true);
     this.hud.setSolo(true);
-    const mode = new SoloMode(net, {
+    const ctx = {
       ui, scene: this.scene, fx: this.fx, labels: this.labels, feed: this.feed, hud: this.hud, chase: this.chase,
       local: this.local, fishing: this.fishing!, reel: this.reel, dialogue: this.dialogue, world: this.world,
       boat: () => this.boats.get(net.sessionId),
-      monster: (id) => this.monsters.get(id),
-      cinematic: (x, z, dur) => { this.cinematic = { x, z, t: 0, dur }; },
-      slowmo: (scale, seconds) => { this.timeScale = scale; this.slowFor = seconds; },
+      monster: (id: string) => this.monsters.get(id),
+      cinematic: (x: number, z: number, dur: number) => { this.cinematic = { x, z, t: 0, dur }; },
+      slowmo: (scale: number, seconds: number) => { this.timeScale = scale; this.slowFor = seconds; },
       dev: this.dev,
-    }, chapter);
-    this.soloMode = mode;
+    };
     this.pause.onResume = () => this.setPaused(false);
     this.pause.onSettings = (s) => this.applySettings(s);
     this.pause.onQuit = () => { net.persist(); location.href = location.pathname; };
-    this.pause.onChart = () => { this.setPaused(false); mode.openChart(); };
-    this.pause.onCodex = () => { this.setPaused(false); mode.openCodex(); };
-    this.pause.onWorkshop = () => { this.setPaused(false); mode.openWorkshop(); };
-    this.pause.onRestart = () => { this.setPaused(false); mode.runner.start(mode.runner.def, { retry: true }); };
+    this.pause.onAquarium = () => { this.setPaused(false); openAquarium(ui); };
+    this.pause.onPhoto = () => { this.setPaused(false); this.photo?.toggle(); };
+    if (endless) {
+      const mode = new EndlessMode(net, ctx, endless);
+      this.endless = mode;
+      this.soloMode = mode;
+      this.pause.configureEndless(() => { this.setPaused(false); mode.abandon(); });
+    } else {
+      const mode = new SoloMode(net, ctx, chapter);
+      this.campaign = mode;
+      this.soloMode = mode;
+      this.pause.onChart = () => { this.setPaused(false); mode.openChart(); };
+      this.pause.onCodex = () => { this.setPaused(false); mode.openCodex(); };
+      this.pause.onWorkshop = () => { this.setPaused(false); mode.openWorkshop(); };
+      this.pause.onRestart = () => { this.setPaused(false); mode.runner.start(mode.runner.def, { retry: true }); };
+    }
+    this.companion = new Companion(this.scene, currentCompanion());
+    this.photo = new PhotoMode(this.renderer, this.uiRoot, (on) => { this.labels.root.style.visibility = on ? "hidden" : ""; });
     window.addEventListener("pagehide", () => net.persist());
     if (this.dev) this.feed.toast("DEV: K storm · N monster · G gust · J complete · window.__dev", "", 5000);
   }
 
   /** dev API access */
-  get soloModeRef() { return this.soloMode; }
+  get soloModeRef() { return this.campaign; }
+  get endlessRef() { return this.endless; }
   get reelRef() { return this.reel; }
   get localRef() { return this.local; }
 
@@ -325,6 +349,8 @@ export class Game {
     sfx.unlock();
     const net = this.net;
     if (!net) return;
+    if (code === "KeyP" && this.photo && !this.pause?.visible && !this.soloMode?.overlayOpen) { this.photo.toggle(); return; }
+    if (this.photo?.active) { if (code === "Escape") this.photo.toggle(); return; }
     if (this.soloMode && !this.pause?.visible && !this.help.visible && this.soloMode.onKey(code)) return;
     switch (code) {
       case "Space": if (!this.overlayOpen) this.fishing?.primaryDown(this.me); break;
@@ -535,7 +561,7 @@ export class Game {
     const dt = rawDt * this.timeScale;
     this.time += dt;
     const net = this.net;
-    if (this.solo) this.solo.paused = !!(this.pause?.visible || this.soloMode?.busy || this.cinematic);
+    if (this.solo) this.solo.paused = !!(this.pause?.visible || this.soloMode?.busy || this.cinematic || this.photo?.active);
     net?.tick(dt);
     const state = net?.state;
     const meId = net?.sessionId ?? "";
@@ -560,6 +586,7 @@ export class Game {
       const reelSlow = this.fishing?.reeling ? 0.35 : 1;
       if (!this.solo?.paused) this.local.update(dt, throttle * reelSlow, steer, wind, canDrive);
       this.enforceLockedZones(me);
+      this.soloMode?.clampBoat?.(this.local);
       this.moveAcc += dt;
       if (this.moveAcc >= 1 / MOVE_SEND_HZ && !me.sunk) {
         this.moveAcc = 0;
@@ -639,6 +666,7 @@ export class Game {
       this.camera.position.set(DOCK_POS.x + Math.sin(this.attractAngle) * r, 22 + Math.sin(this.time * 0.2) * 3, DOCK_POS.z + Math.cos(this.attractAngle) * r);
       this.camera.lookAt(DOCK_POS.x + 10, 2, DOCK_POS.z);
     }
+    if (this.companion && myBoat) this.companion.update(dt, this.time, myBoat.position, this.local.rot, this.local.speed);
     const focus = myBoat ? myBoat.position : this.tmp.set(DOCK_POS.x, 0, DOCK_POS.z);
     this.world.update(dt, this.time, focus, this.camera.position, wind?.speed ?? 0.3, storm);
     if (this.solo) {
@@ -673,11 +701,11 @@ export class Game {
       mapEach<PlayerS>(state?.players, (p) => players.push(p));
       const mons: MonsterS[] = [];
       mapEach<MonsterS>(state?.monsters, (m) => mons.push(m));
-      this.minimap.update(dt, players, meId, mons, me ? { x: this.local.x, z: this.local.z, rot: this.local.rot } : null, this.soloMode?.runner.lockedBorder()?.r, this.soloMode?.mapExtras());
+      this.minimap.update(dt, players, meId, mons, me ? { x: this.local.x, z: this.local.z, rot: this.local.rot } : null, this.soloMode?.lockedBorder()?.r, this.soloMode?.mapExtras());
       this.updateBossBar(mons);
       const squads: SquadS[] = [];
       mapEach<SquadS>(state?.squads as any, (s) => squads.push(s));
-      this.board.update(dt, players, squads, meId, this.solo ? { save: this.solo.save, chapterLabel: this.soloMode?.runner.trackerLabel ?? "" } : undefined);
+      this.board.update(dt, players, squads, meId, this.solo ? { save: this.solo.save, chapterLabel: this.soloMode?.trackerLabel ?? "" } : undefined);
       this.squadPicker.update(players, meId);
       this.reveal.update(dt);
       this.touch?.update();
@@ -688,6 +716,7 @@ export class Game {
 
     if (!render) return;
     this.renderer.render(this.scene, this.camera);
+    this.photo?.afterRender();
     this.labels.update(dt, this.camera, window.innerWidth, window.innerHeight);
     this.fpsTick(dt);
   }
@@ -705,7 +734,7 @@ export class Game {
 
   /** solo: push the boat back from locked zone borders */
   private enforceLockedZones(me: PlayerS) {
-    const lock = this.soloMode?.runner.lockedBorder();
+    const lock = this.soloMode?.lockedBorder();
     if (!lock || me.sunk) return;
     const r = Math.hypot(this.local.x - DOCK_POS.x, this.local.z - DOCK_POS.z);
     const max = lock.r - 4;

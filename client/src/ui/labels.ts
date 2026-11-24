@@ -5,7 +5,7 @@ interface Label { el: HTMLElement; pos: THREE.Vector3; maxDist: number; visible:
 interface Floater { el: HTMLElement; pos: THREE.Vector3; t: number; life: number; rise: number }
 
 export class Labels {
-  private root: HTMLElement;
+  readonly root: HTMLElement;
   private labels = new Set<Label>();
   private floaters: Floater[] = [];
   private v = new THREE.Vector3();
