@@ -1,0 +1,14 @@
+# Render Blueprint: the Tidebreakers multiplayer server (Colyseus).
+# Render dashboard → New → Blueprint → pick this repo. The free plan sleeps after ~15 min idle
+# (the first visitor waits ~1 min while it wakes); single player never needs it.
+services:
+  - type: web
+    name: tidebreakers-server
+    runtime: node
+    plan: free
+    branch: endless-tide
+    buildCommand: npm ci --include=dev
+    startCommand: npm run start -w server
+    envVars:
+      - key: NODE_VERSION
+        value: "24"
