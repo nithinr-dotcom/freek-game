@@ -69,7 +69,7 @@ class CrabTitan extends BossBehaviour {
     for (let i = 0; i < k; i++) {
       const a = Math.random() * Math.PI * 2;
       const cm = net.spawnMonster("serpent", { scripted: true, quiet: true, hp: 1, at: { x: m.x + Math.cos(a) * 7, z: m.z + Math.sin(a) * 7 } });
-      cm.maxHp = 1;
+      cm.maxHp = cm.hp; // 1 (Hard: scaled)
       const c = new Crabling(this.env, cm, m.id);
       net.controllers.set(cm.id, c);
       this.env.fx.dress?.(cm.id, buildCrabling(c.vis), "Brood Crab", { labelY: 3.5, aimY: 1, cls: "minion" });

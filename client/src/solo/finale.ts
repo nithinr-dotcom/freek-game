@@ -8,6 +8,7 @@ import type { EnvCtx } from "./hazards/host";
 import type { Lantern } from "./hazards/lantern";
 import { envHost } from "./hazards/host";
 import { openCredits } from "../ui/credits";
+import type { Dialogue } from "../ui/dialogue";
 import { h } from "../util";
 import { sfx } from "../audio";
 
@@ -30,7 +31,7 @@ export interface FinaleCtx extends EnvCtx {
   dialogue(lines: string[], done: () => void, title?: string): void;
 }
 
-const ENDING = [
+export const ENDING = [
   "Look at that, sailor. Light. Real light, in the Trench. Forty years I've waited to see a sunrise here.",
   "The Maelstrom's gone quiet. The ships it swallowed will drift home, my brother's among them.",
   "Every sea is open to you now. Fish where you like, as long as you like. And when you're ready for something harder… the sea will be waiting.",
@@ -39,6 +40,7 @@ const ENDING = [
 
 export function playFinale(ctx: FinaleCtx, unlocks: string[], done: () => void) {
   const ui = ctx.ui;
+  ctx.net.save.flags.creditsSeen = true;
   const lantern = envHost.current?.get<Lantern>("lantern");
   const prevFrozen = ctx.clock.frozenAt;
   // the first dawn over the Trench
@@ -68,4 +70,15 @@ export function playFinale(ctx: FinaleCtx, unlocks: string[], done: () => void) 
       });
     }, "Marlow");
   }, 6200);
+}
+
+/** P4: "Replay ending" (Sea Chart, once seen): Marlow's farewell, then the credits (no unlocks, any region) */
+export function replayEnding(ui: HTMLElement, save: SoloSave, dialogue: Pick<Dialogue, "show">, done: () => void) {
+  const fade = h("div.finale-fade");
+  ui.append(fade);
+  requestAnimationFrame(() => fade.classList.add("go"));
+  setTimeout(() => dialogue.show(ENDING, () => openCredits(ui, {
+    save, unlocks: [],
+    onClose: () => { fade.classList.remove("go"); setTimeout(() => fade.remove(), 2600); done(); },
+  }), "Marlow"), 900);
 }

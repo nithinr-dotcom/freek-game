@@ -5,7 +5,7 @@
 import * as THREE from "three";
 import {
   DOCK_POS, DOCK_RADIUS, MATERIALS, MATERIAL_DROP, COSMETICS_BY_ID, TITLES_BY_ID, DEFAULT_COSMETICS, getRegion, getCampaignSpecies, tierRank, zoneAt,
-  getChapter, chaptersOfRegion, TIER_INFO,
+  getChapter, chaptersOfRegion, TIER_INFO, allChapters, regionList, LEGENDARY_SPECIES,
   type RegionDef, type MaterialId, type FishCardS, type MonsterS, type PlayerS, type WeatherTag, type Achievement, type RegionId, type CampaignChapter,
 } from "@freek/shared";
 import type { SoloNet, FishRoll } from "../solo/SoloNet";
@@ -21,7 +21,10 @@ import type { BossFx } from "../solo/bosses";
 import { HazardHost, EnvHost } from "../solo/hazards";
 import { lineGate } from "../solo/lineGates";
 import { Telegraphs } from "../fx/telegraphs";
-import { applyFinaleUnlocks, playFinale, FINALE_CHAPTER } from "../solo/finale";
+import { applyFinaleUnlocks, playFinale, replayEnding, FINALE_CHAPTER } from "../solo/finale";
+import { BountyRunner } from "../solo/bounties";
+import { openBountyBoard } from "../ui/bountyBoard";
+import "../p4.css";
 import { CampaignScreens } from "../ui/campaignScreens";
 import { SoloHud } from "../ui/soloHud";
 import { openSeaChart } from "../ui/seaChart";
@@ -77,6 +80,8 @@ export class SoloMode {
   private tintEl: HTMLElement;
   /** a line-gated fish is on a line that can't hold it: tension forced up (s) */
   private gateSnap = 0;
+  /** P4 Bounty Board (runs in free roam) */
+  readonly bounty: BountyRunner;
 
   constructor(readonly net: SoloNet, private g: SoloGameCtx, startChapter?: number) {
     const save = net.save;
@@ -97,6 +102,7 @@ export class SoloMode {
     g.ui.append(this.restFade, this.tintEl);
     this.shud = new SoloHud(g.ui, g.hud.bagEl, {
       bait: () => this.baitKey(), keepBait: () => this.keepBait(), workshop: () => this.openWorkshop(), chart: () => this.openChart(), rest: () => this.rest(), codex: () => this.openCodex(),
+      bounties: () => this.openBounties(), achievements: () => this.openCodex("ach"),
     });
     g.hud.setSoloStrip(true);
     this.ach = new AchievementTracker(save);
@@ -109,6 +115,7 @@ export class SoloMode {
     net.extraTargets = () => this.actors.targets();
     net.hooks.onProgress = (ev) => {
       this.runner.onProgress(ev);
+      if (this.runner.status === "free") this.bounty?.event(ev);
       if (ev.t === "snap") this.streak = 0;
     };
     net.hooks.onSunk = () => this.runner.onSunk();
@@ -116,6 +123,14 @@ export class SoloMode {
     net.hooks.onLanded = (card, perfect, roll) => this.onLanded(card, perfect, roll);
     net.hooks.onBanked = (pts, cards) => { this.ach.max("bankTripMax", pts); void cards; };
     net.hooks.onMonsterKilled = (m, boss) => this.onMonsterKilled(m, boss);
+    // P4: monster / horror loot comes from this region's campaign species (it used to roll the multiplayer table)
+    net.hooks.rollLoot = (minTier, x, z) => {
+      const r = campaignRoll({
+        region: this.region.id, zone: zoneAt(x, z), storm: net.state.storm, time: this.clock.phase, weather: new Set(), x, z,
+        bait: null, rareBonus: net.loadout.rareBonus, level: net.me.level, forceMinTier: minTier,
+      });
+      return { speciesId: r.species.id, tier: r.species.tier, weightKg: r.weightKg, points: r.points, behaviour: r.species.behaviour };
+    };
     g.fishing.modsProvider = () => {
       const r = net.pendingRoll, L = net.loadout;
       if (!r) return null;
@@ -161,7 +176,7 @@ export class SoloMode {
       onEvent: (ev) => this.env.onEvent(ev),
       ui: {
         dialogue: (lines, done, title) => g.dialogue.show(lines, done, title),
-        banner: (ch, region) => { this.hazards?.reset(); bossFx.tint?.("#000", 0); this.screens.showBanner(ch, region); g.hud.setRoom(ch ? `CH.${ch.act}-${ch.index}` : "FREE", false); },
+        banner: (ch, region) => { this.hazards?.reset(); bossFx.tint?.("#000", 0); this.screens.showBanner(ch, region, this.runner.mode); g.hud.setRoom(ch ? `CH.${ch.act}-${ch.index}` : "FREE", false); },
         complete: (r, a) => {
           g.fishing.cancel();
           const unlocks = this.finaleUnlocks;
@@ -193,6 +208,15 @@ export class SoloMode {
       emit: (ev) => this.runner.feed(ev), toast: (html, cls) => g.feed.toast(html, cls ?? "", 2600), shake: (n) => g.chase.shake(n),
       live: () => (this.runner.status === "running" || this.runner.status === "free") && !this.runner.busy && !net.paused && !this.screens.visible,
     }, Object.entries(R.hazards).filter(([, on]) => on).map(([k]) => k));
+
+    // ---- P4 Bounty Board
+    this.bounty = new BountyRunner({
+      save, region: R.id, zones: () => this.runner.freeRoamZones(), level: () => net.me.level, coins: () => net.me.coins,
+      spend: (n) => { net.me.coins -= n; },
+      pay: (coins, xp, mats) => { net.addCoins(coins); net.addXp(xp); for (const [id, n] of Object.entries(mats)) this.grantMaterial(id as MaterialId, n as number, true); sfx.levelUp(); },
+      ctx: () => ({ elapsed: this.bounty.elapsed, npcHpPct: () => undefined, warmthPct: this.env.meters().warmth, fuelPct: this.env.meters().fuel, storm: net.state.storm, night: this.clock.phase === "night", monstersAlive: net.state.monsters.size, unbankedFish: net.me.unbanked.length }),
+      toast: (html, cls) => g.feed.toast(html, cls ?? "", 3600), persist: () => net.persist(), bump: (stat) => this.ach.bump(stat),
+    });
 
     // ---- first chapter
     const cur = save.campaign.current;
@@ -253,6 +277,7 @@ export class SoloMode {
     if (roll.usedBait) this.ach.bump("baitCatches");
     this.ach.bump(`species_${card.speciesId}`);
     if (card.tier === "legendary") this.ach.bump("legendaries");
+    if (card.tier === "legendary") this.ach.set("legendSpecies", LEGENDARY_SPECIES().filter((id) => save.codex[id]).length);
     // bait offer
     const cs = getCampaignSpecies(card.speciesId);
     if (cs?.baitable) { this.keepCard = card; setTimeout(() => this.shud.offerBait(cs.name), 600); }
@@ -261,7 +286,9 @@ export class SoloMode {
 
   private updateCodexStat(silent = false) {
     const c = regionCompletion(this.net.save, this.region.id);
-    this.net.save.stats[`codex_${this.region.id}`] = c.pct;
+    const st = this.net.save.stats;
+    st[`codex_${this.region.id}`] = c.pct;
+    st.codexRegionsDone = regionList().filter((r) => regionCompletion(this.net.save, r.id).pct >= 100).length;
     if (!silent) this.ach.check();
   }
 
@@ -339,9 +366,10 @@ export class SoloMode {
       save: this.net.save, current: this.region.id,
       onPlay: (id) => { const c = getChapter(id)!; if (c.region !== this.region.id) this.travel(c.region, id); else this.runner.start(id); },
       onFreeRoam: (r) => { if (r !== this.region.id) this.travel(r); else this.runner.start(null); },
+      onReplayEnding: () => { this.runner.busy = true; replayEnding(this.g.ui, this.net.save, this.g.dialogue, () => { this.runner.busy = false; }); },
     });
   }
-  openCodex() { this.g.fishing.cancel(); this.modal = openCodex(this.g.ui, this.net.save); }
+  openCodex(tab: "fish" | "ach" = "fish") { this.g.fishing.cancel(); this.closeModal(); this.modal = openCodex(this.g.ui, this.net.save, tab); }
   /** regions are separate maps: travel = reload into that region */
   travel(r: RegionId, chapter?: number) {
     const def = getRegion(r);
@@ -359,7 +387,11 @@ export class SoloMode {
     if (boss) {
       const id = this.runner.def?.boss;
       if (id) this.ach.bump(`boss_${id}`);
-      if (this.runner.damageTaken === 0) this.ach.bump("bossNoDamage");
+      if (this.runner.damageTaken === 0) {
+        this.ach.bump("bossNoDamage");
+        if (id) { this.net.save.stats[`flawless_${id}`] = 1; this.ach.set("flawlessBosses", ["reef_serpent", "crab_titan", "storm_kraken", "ice_leviathan", "maelstrom_eye"].filter((b) => this.net.save.stats[`flawless_${b}`]).length); }
+      }
+      if (this.runner.mode !== "normal") this.ach.bump("hardBosses");
       this.tele.clear();
     } else {
       const L = this.net.loadout.skills;
@@ -387,7 +419,22 @@ export class SoloMode {
     const act = chaptersOfRegion(r.chapter.region).filter((c) => c.act === r.chapter.act);
     this.ach.set(`actS_${r.chapter.act}`, act.filter((c) => save.campaign.chapters[c.id]?.grade === "S").length);
     if (act.every((c) => save.campaign.chapters[c.id]?.done)) this.ach.set(`actDone_${r.chapter.act}`, 1);
-    if (r.chapter.id === FINALE_CHAPTER) { const u = applyFinaleUnlocks(save); if (r.firstClear) this.finaleUnlocks = u; this.ach.check(); }
+    if (r.chapter.id === FINALE_CHAPTER && r.mode === "normal") { const u = applyFinaleUnlocks(save); if (r.firstClear) this.finaleUnlocks = u; this.ach.check(); }
+    // P4: S grades over every mode's best, Hard / Legendary clears, Legendary unlock
+    const all = allChapters();
+    const best = (id: number) => [save.campaign.chapters[id], save.campaign.modeRecords?.hard?.[id], save.campaign.modeRecords?.legendary?.[id]];
+    this.ach.set("sGrades", all.filter((c) => best(c.id).some((x) => x?.grade === "S")).length);
+    if (r.mode !== "normal") {
+      if (r.mode === "hard" || r.mode === "legendary") this.ach.bump("hardClears");
+      if (r.mode === "legendary") this.ach.bump("legendaryClears");
+      const hardAll = all.filter((c) => save.campaign.modeRecords?.hard?.[c.id]?.done || save.campaign.modeRecords?.legendary?.[c.id]?.done).length;
+      this.ach.set("hardAll", hardAll);
+      this.ach.set("legendaryAll", all.filter((c) => save.campaign.modeRecords?.legendary?.[c.id]?.done).length);
+      if (hardAll >= all.length && !save.flags.legendaryUnlocked) {
+        save.flags.legendaryUnlocked = true;
+        setTimeout(() => this.g.feed.toast("<b>👑 Legendary mode unlocked!</b> Hard rules, and every chapter is ironman. Pick it on the Sea Chart.", "good", 6000), 1500);
+      }
+    }
     this.cosApplied = "";
   }
   private onAchievement(a: Achievement) {
@@ -447,7 +494,17 @@ export class SoloMode {
       atDock, restLabel: this.clock.restTarget.label, skillPoints: Math.max(0, skillPointsLeft(save, me?.xp ?? save.xp)),
     });
     this.env.update(dt, me, paused);
+    if (this.runner.status === "free" && !this.runner.busy && !paused && !this.screens.visible) this.bounty.tick(dt);
   }
+
+  // ======================================================================= P4: bounties, tracker
+  openBounties() {
+    if (!this.atDock) { this.g.feed.toast("The Bounty Board is at the dock.", "", 1800); return; }
+    this.g.fishing.cancel();
+    this.modal = openBountyBoard(this.g.ui, { runner: this.bounty, coins: () => this.net.me.coins, canAccept: this.runner.status === "free", regionId: this.region.id });
+  }
+  get trackerLabel() { return this.runner.status === "free" && this.bounty.active ? `BOUNTY · ${this.region.name.toUpperCase()}` : this.runner.trackerLabel; }
+  trackerItems() { return this.runner.status === "free" ? this.bounty.trackerItems() : this.runner.trackerItems(); }
 
   onKey(code: string): boolean {
     if (this.overlayOpen) return false;
@@ -456,6 +513,8 @@ export class SoloMode {
       case "KeyC": this.openCodex(); return true;
       case "Digit1": if (this.atDock) this.openWorkshop(); else this.g.feed.toast("The Workshop is at the dock.", "", 1600); return true;
       case "Digit2": this.openChart(); return true;
+      case "Digit3": this.openBounties(); return true;
+      case "KeyV": this.openCodex("ach"); return true;
       case "KeyR": if (this.atDock) this.rest(); return true;
     }
     return false;

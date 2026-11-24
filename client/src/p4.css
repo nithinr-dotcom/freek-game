@@ -1,0 +1,82 @@
+/* P4: modes, Bounty Board, achievements screen, phone fixes (boss bar, dock bar) */
+
+/* ---- difficulty modes */
+.mode-badge { display: inline-block; padding: 1px 7px; border-radius: 6px; font-size: 11px; font-weight: 900; letter-spacing: 1px; vertical-align: 1px; }
+.mode-badge.m-hard { background: #ff7a3d; color: #2a0e00; }
+.mode-badge.m-legendary { background: linear-gradient(90deg, #ff4fd8, #ffd24a); color: #2a0a24; }
+.chart-modes { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 8px; }
+.cm-btn { padding: 6px 12px; border-radius: 10px; border: 2px solid rgba(255,255,255,.12); background: rgba(255,255,255,.05); color: var(--text); font-weight: 900; font-size: 13px; }
+.cm-btn.on.m-normal { border-color: #7dd3ff; background: rgba(125,211,255,.16); }
+.cm-btn.on.m-hard { border-color: #ff7a3d; background: rgba(255,122,61,.2); }
+.cm-btn.on.m-legendary { border-color: #ff4fd8; background: rgba(255,79,216,.2); }
+.cm-btn.locked { opacity: .45; }
+.cm-blurb { flex: 1 1 200px; font-size: 11px; font-weight: 800; color: var(--muted); }
+.cdc-modes { margin-left: 6px; }
+.cdc-mode { display: inline-block; margin-right: 3px; padding: 0 4px; border-radius: 5px; font-size: 10px; font-weight: 900; background: rgba(0,0,0,.35); }
+.cdc-mode.m-hard { color: #ff9a5a; } .cdc-mode.m-legendary { color: #ff7ae0; } .cdc-mode.m-normal { color: #7dd3ff; }
+
+/* ---- Bounty Board */
+.bb-panel { width: min(760px, 96vw); }
+.bb-h { font-family: var(--display); font-weight: 900; font-size: 18px; padding: 10px 6px; color: #ffd24a; }
+.bb-body { overflow-y: auto; padding: 10px 14px 14px; }
+.bb-list { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.bb-card { position: relative; display: flex; flex-direction: column; gap: 6px; padding: 12px; border-radius: 14px; background: linear-gradient(180deg, #e9d7a8, #cdb37a); color: #2b1b08; box-shadow: 0 6px 0 rgba(0,0,0,.35), inset 0 0 0 2px rgba(80,50,10,.35); }
+.bb-card.on { box-shadow: 0 6px 0 rgba(0,0,0,.35), 0 0 0 3px #ffd24a, 0 0 24px rgba(255,210,74,.5); }
+.bb-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.bb-title { font-family: var(--display); font-weight: 900; font-size: 16px; flex: 1 1 auto; }
+.bb-diff { color: #a0400a; font-size: 13px; } .bb-diff i { font-style: normal; color: rgba(80,50,10,.25); }
+.bb-time { font-size: 11px; font-weight: 900; padding: 1px 6px; border-radius: 6px; background: #7a1d1d; color: #ffe0c0; }
+.bb-obj { font-weight: 900; font-size: 14px; }
+.bb-blurb { font-size: 12px; font-style: italic; opacity: .8; }
+.bb-reward { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; font-size: 12px; font-weight: 900; }
+.bb-reward .coins { color: #7a4a00; } .bb-reward .xp { color: #1d4a7a; }
+.bb-reward .mat-chip { background: rgba(0,0,0,.6); }
+.bb-est { margin-left: auto; opacity: .7; }
+.bb-actions { display: flex; gap: 6px; margin-top: auto; }
+.bb-actions .tb-btn { flex: 1; }
+.bb-active { position: absolute; top: -9px; right: 10px; padding: 1px 8px; border-radius: 6px; background: #ffd24a; color: #3b2600; font-size: 10px; font-weight: 900; letter-spacing: 1px; }
+.bb-foot { margin-top: 10px; font-size: 11px; font-weight: 800; color: var(--muted); text-align: center; }
+@media (max-width: 700px) { .bb-list { grid-template-columns: 1fr; } .bb-card { padding: 9px 11px; gap: 4px; } }
+@media (max-height: 500px) and (orientation: landscape) { .bb-panel { max-height: 94dvh; } .bb-list { grid-template-columns: repeat(3, 1fr); gap: 6px; } .bb-card { padding: 8px; gap: 3px; } .bb-title { font-size: 14px; } .bb-blurb { display: none; } .bb-body { padding: 6px 8px 8px; } }
+
+/* ---- achievements screen */
+.ach-group { margin-top: 14px; }
+.ach-when { font-size: 10px; font-weight: 800; color: #7dff9a; margin-top: 2px; }
+.ach-foot { margin: 14px 0 4px; font-size: 11px; font-weight: 800; color: var(--muted); text-align: center; }
+.ach-banner { pointer-events: auto; }
+.ach-item { cursor: pointer; }
+
+/* ---- boss bar: long names wrap/shrink instead of overflowing the HUD on phones */
+.boss-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.boss-name .bn-phase { font-size: .68em; letter-spacing: 1px; color: #ffc0ee; }
+@media (max-width: 640px), (max-height: 500px) {
+  .boss-bar { width: min(520px, 62vw); }
+  .boss-name { font-size: 14px; letter-spacing: 1px; white-space: normal; line-height: 1.1; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+  .boss-name .bn-phase { display: block; font-size: 11px; }
+  .boss-track { height: 13px; } .boss-hp { font-size: 10px; line-height: 13px; }
+}
+@media (max-width: 500px) and (orientation: portrait) {
+  /* the top of a portrait phone is full (stats, strip, bag, minimap): the bar sits above the touch controls */
+  .boss-bar, body.touch-mode .boss-bar { width: calc(100vw - 24px); top: auto; bottom: calc(max(10px, env(safe-area-inset-bottom)) + 290px); }
+}
+@media (max-height: 500px) and (orientation: landscape) {
+  .boss-bar { top: 62px; width: min(420px, 46vw); }
+  body.touch-mode .boss-bar { top: calc(max(6px, env(safe-area-inset-top)) + 58px); }
+}
+
+/* ---- dock bar: 6 buttons wrap on narrow phones */
+@media (max-width: 500px) and (orientation: portrait) {
+  .dock-row { flex-wrap: wrap; justify-content: center; max-width: calc(100vw - 20px); }
+}
+
+/* ---- the solo strip (clock, timer, warmth/fuel chips) must not slide under the MISSIONS pill on portrait phones */
+@media (max-width: 500px) and (orientation: portrait) {
+  .solo-strip, .solo-strip.has-meters { max-width: calc(100vw - 126px); flex-wrap: nowrap; gap: 4px; padding: 5px 7px; font-size: 11px; white-space: nowrap; }
+}
+
+/* solo panels: the tab row must not be squeezed by a long body (achievements list on portrait phones) */
+.codex-panel > .lb-tabs, .ws-panel > .lb-tabs, .bb-panel > .lb-tabs { flex-shrink: 0; }
+
+/* bug fix: `#ui > * { pointer-events: auto }` (id specificity) beat these full-screen effect layers' `pointer-events: none`,
+   so the invisible rest fade (z 31) swallowed every click and tap on the Workshop / Sea Chart / Codex / Bounty overlays */
+#ui > .rest-fade, #ui > .solo-tint, #ui > .p3-vignette, #ui > .finale-fade { pointer-events: none; }

@@ -34,3 +34,8 @@ import "./bosses/p3.js";
 import "./rewardsP3.js";
 import "./act4.js";
 import "./act5.js";
+// P4: modes, Bounty Board, the rest of the achievements
+export * from "./modes.js";
+export * from "./bounties.js";
+export { LEGENDARY_SPECIES, achievementGroup } from "./rewardsP4.js";
+import "./rewardsP4.js";

@@ -661,7 +661,7 @@ export class Game {
         const st = this.fishing?.phase ?? "idle";
         if (this.soloMode) {
           this.soloMode.update(dt, me, !!this.solo?.paused);
-          this.missions.update(arr(me.missions), [], "#ffd24a", { label: this.soloMode.runner.trackerLabel, items: this.soloMode.runner.trackerItems() });
+          this.missions.update(arr(me.missions), [], "#ffd24a", { label: this.soloMode.trackerLabel, items: this.soloMode.trackerItems() });
           this.hud.setHint(this.soloMode.hint(me, st));
         } else {
           const squad: SquadS | undefined = state?.squads?.get(me.squad);

@@ -2,7 +2,7 @@
 import type { Achievement, TimeOfDay } from "@freek/shared";
 import { h, escapeHtml } from "../util";
 
-export interface SoloHudHooks { bait(): void; keepBait(): void; workshop(): void; chart(): void; rest(): void; codex(): void }
+export interface SoloHudHooks { bait(): void; keepBait(): void; workshop(): void; chart(): void; rest(): void; codex(): void; bounties(): void; achievements?(): void }
 export interface SoloHudState {
   clock: string; phase: TimeOfDay;
   timer: { text: string; urgent: boolean; limit: boolean } | null;
@@ -37,7 +37,7 @@ export class SoloHud {
       h("button.dock-btn", { onpointerdown: (e: PointerEvent) => { e.stopPropagation(); e.preventDefault(); fn(); } }, h("span.db-icon", null, icon), h("span.db-label", null, label), h("span.db-key.only-desktop", null, key));
     this.wsBtn = btn("🔨", "Workshop", "1", () => this.hooks.workshop());
     this.restBtn = btn("🌙", "Rest", "R", () => this.hooks.rest());
-    this.dock = h("div.dock-bar", null, h("div.dock-title", null, "⚓ Marlow's Dock"), h("div.dock-row", null, this.wsBtn, btn("🗺", "Sea Chart", "2", () => this.hooks.chart()), this.restBtn, btn("📖", "Codex", "C", () => this.hooks.codex())));
+    this.dock = h("div.dock-bar", null, h("div.dock-title", null, "⚓ Marlow's Dock"), h("div.dock-row", null, this.wsBtn, btn("🗺", "Sea Chart", "2", () => this.hooks.chart()), btn("📜", "Bounties", "3", () => this.hooks.bounties()), this.restBtn, btn("📖", "Codex", "C", () => this.hooks.codex())));
     this.offer = h("div.bait-offer");
     this.ach = h("div.ach-banner");
     root.append(this.strip, this.dock, this.offer, this.ach);
@@ -77,7 +77,7 @@ export class SoloHud {
   closeOffer() { this.offerTimer = 0; this.offer.classList.remove("show"); }
 
   achievement(a: Achievement, rewardText: string) {
-    const el = h("div.ach-item", { html: `<span class="ai-icon">${a.icon}</span><div><div class="ai-label">ACHIEVEMENT UNLOCKED</div><div class="ai-name">${escapeHtml(a.name)}</div>${rewardText ? `<div class="ai-reward">${escapeHtml(rewardText)}</div>` : ""}</div>` });
+    const el = h("div.ach-item", { onpointerdown: (e: PointerEvent) => { e.stopPropagation(); this.hooks.achievements?.(); }, html: `<span class="ai-icon">${a.icon}</span><div><div class="ai-label">ACHIEVEMENT UNLOCKED</div><div class="ai-name">${escapeHtml(a.name)}</div>${rewardText ? `<div class="ai-reward">${escapeHtml(rewardText)}</div>` : ""}</div>` });
     this.ach.append(el);
     setTimeout(() => { el.classList.add("out"); setTimeout(() => el.remove(), 500); }, 4200);
   }

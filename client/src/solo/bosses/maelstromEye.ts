@@ -220,9 +220,9 @@ class MaelstromEye extends BossBehaviour {
     this.duelRunning = true;
     this.duelTries++;
     reel.el.classList.add("eye-duel");
-    reel.start("legendary", 0.86, DUEL_MS, net.me.level, (r) => { this.duelResult = r.success; }, {
+    reel.start("legendary", Math.min(1, 0.93 + net.fishDiffBonus), DUEL_MS, net.me.level, (r) => { this.duelResult = r.success; }, {
       behaviour: "legend", weightKg: 0, ratingKg: 1, fillMult: L.fillMult, liftMult: L.liftMult,
-      zoneBonus: L.skills.zoneBonus + 0.05, tensionMult: L.skills.tensionMult * 0.85, secondWind: L.skills.secondWind,
+      zoneBonus: L.skills.zoneBonus + 0.02, tensionMult: L.skills.tensionMult * 0.95, secondWind: L.skills.secondWind, // P4 balance (was +0.05, ×0.85)
     });
     const label = reel.el.querySelector(".reel-label");
     if (label) label.textContent = "👁 THE EYE DUEL";

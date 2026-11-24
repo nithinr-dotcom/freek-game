@@ -1,5 +1,5 @@
 /** Campaign v2 cards: chapter banner, CHAPTER COMPLETE (stars, grade, rewards), CHAPTER FAILED (+hint/Assist), boss title + kill cards. */
-import { MATERIALS, GRADE_COLOR, type CampaignChapter, type RegionDef, type BossDef, type MaterialId } from "@freek/shared";
+import { MATERIALS, GRADE_COLOR, MODE_INFO, type CampaignMode, type CampaignChapter, type RegionDef, type BossDef, type MaterialId } from "@freek/shared";
 import type { ChapterResult, FailInfo } from "../solo/chapterRunner";
 import { h, escapeHtml } from "../util";
 import { sfx } from "../audio";
@@ -24,9 +24,10 @@ export class CampaignScreens {
   get visible() { return this.card.classList.contains("show"); }
   close() { this.card.classList.remove("show"); }
 
-  showBanner(def: CampaignChapter | null, region: RegionDef) {
+  showBanner(def: CampaignChapter | null, region: RegionDef, mode: CampaignMode = "normal") {
+    const mb = mode !== "normal" ? `<span class="mode-badge m-${mode}">${MODE_INFO[mode].icon} ${MODE_INFO[mode].name.toUpperCase()}</span> ` : "";
     this.banner.innerHTML = def
-      ? `<div class="cb-num">${def.boss ? "☠ BOSS · " : ""}ACT ${def.act} · CHAPTER ${def.index}</div><div class="cb-title">${escapeHtml(def.title.replace(/^BOSS:\s*/, ""))}</div><div class="cb-zone">${escapeHtml(region.name)}</div>`
+      ? `<div class="cb-num">${mb}${def.boss ? "☠ BOSS · " : ""}ACT ${def.act} · CHAPTER ${def.index}</div><div class="cb-title">${escapeHtml(def.title.replace(/^BOSS:\s*/, ""))}</div><div class="cb-zone">${escapeHtml(region.name)}</div>`
       : `<div class="cb-num">FREE ROAM</div><div class="cb-title">${escapeHtml(region.name)}</div><div class="cb-zone">Fish, craft and explore · the Sea Chart starts chapters</div>`;
     this.banner.classList.remove("show");
     void this.banner.offsetWidth;
@@ -46,7 +47,7 @@ export class CampaignScreens {
     const g = r.grade;
     this.card.append(h("div.cc-panel", { html: `
       <div class="cc-rays"></div>
-      <div class="cc-label">${r.boss ? "BOSS DEFEATED" : "CHAPTER COMPLETE"}</div>
+      <div class="cc-label">${r.boss ? "BOSS DEFEATED" : "CHAPTER COMPLETE"}${r.mode !== "normal" ? ` · <span class="mode-badge m-${r.mode}">${MODE_INFO[r.mode].icon} ${MODE_INFO[r.mode].name.toUpperCase()}</span>` : ""}</div>
       <div class="cc-title">${r.chapter.act}-${r.chapter.index}. ${escapeHtml(r.chapter.title.replace(/^BOSS:\s*/, ""))}</div>
       <div class="cc-row">
         <div class="cc-stars">${[1, 2, 3].map((i) => `<i class="${i <= r.stars ? "on" : ""}" style="animation-delay:${0.4 + i * 0.3}s">★</i>`).join("")}</div>

@@ -99,13 +99,26 @@ export class Boat {
         mats[1].color.set(c.paint.color);
       }
       if (!this.sailMesh) {
-        const g = new THREE.BufferGeometry();
-        g.setAttribute("position", new THREE.Float32BufferAttribute([0, 4.25, 0.92, 0, 2.0, 0.92, 0, 2.0, -0.55], 3));
-        g.setAttribute("uv", new THREE.Float32BufferAttribute([0.5, 1, 0.5, 0, 0, 0], 2));
+        // P4: a square sail on a yard, facing the chase camera (the old fore-and-aft triangle was edge-on from
+        // behind). Billowed forward so the pattern reads from behind and from the side.
+        const W = 1.9, H = 1.45;
+        const g = new THREE.PlaneGeometry(W, H, 8, 4);
+        const pos = g.attributes.position as THREE.BufferAttribute;
+        for (let i = 0; i < pos.count; i++) {
+          const x = pos.getX(i), y = pos.getY(i);
+          const u = x / (W / 2), v = (y + H / 2) / H;
+          pos.setZ(i, 0.32 * (1 - u * u) * (0.35 + 0.65 * Math.sin(Math.PI * Math.min(1, v * 0.9 + 0.1))));
+        }
         g.computeVertexNormals();
+        g.translate(0, 3.05, 0.78);
         this.sailMesh = new THREE.Mesh(g, new THREE.MeshStandardMaterial({ side: THREE.DoubleSide, flatShading: true, roughness: 0.9 }));
         this.sailMesh.castShadow = true;
+        const yard = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.045, W + 0.25, 5), new THREE.MeshStandardMaterial({ color: "#5a3a22", flatShading: true }));
+        yard.rotation.z = Math.PI / 2; yard.position.set(0, 3.05 + H / 2 + 0.03, 0.8);
+        this.sailMesh.add(yard);
         this.parts.root.add(this.sailMesh);
+        // bigger flag so the cosmetic reads from the chase camera
+        this.parts.flag.scale.set(1.45, 1.45, 1);
       }
       const sm = this.sailMesh.material as THREE.MeshStandardMaterial;
       sm.map = patternTexture(c.sail, 64, 64);

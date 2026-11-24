@@ -30,6 +30,8 @@ export interface SoloHooks {
   onBanked?: (points: number, cards: FishCardS[]) => void;
   onMonsterKilled?: (m: MonsterS, boss: boolean) => void;
   onHarpoonHit?: (m: MonsterS, dmg: number, crit: boolean) => void;
+  /** P4: monster/horror loot from the current region's campaign species (null = multiplayer table) */
+  rollLoot?: (minTier: Tier, x: number, z: number) => FishRoll | null;
 }
 
 /** something monsters can attack besides the player (escort / defended NPC boats) */
@@ -76,6 +78,10 @@ export class SoloNet implements GameNet {
   loadout: Loadout;
   /** assist: monster damage multiplier */
   damageMult = 1;
+  /** P4 Hard/Legendary: monster HP, monster damage, added fish difficulty (1/1/0 = normal) */
+  monsterHpMult = 1;
+  monsterDmgMult = 1;
+  fishDiffBonus = 0;
   /** region weather rules */
   weather: RegionWeather = { windBase: 0.35, stormEveryMs: STORM_EVERY_MS, stormDurationMs: STORM_DURATION_MS, gustEveryMs: [20_000, 40_000] };
   readonly controllers = new Map<string, MonsterController>();
@@ -190,7 +196,7 @@ export class SoloNet implements GameNet {
       if (r > 45 && r < 440 && this.zonesOpen[zone] && (kind !== "kraken" || zone === "abyss" || opts.scripted)) break;
     }
     const spec = MONSTERS[kind];
-    const hp = opts.hp ?? spec.hp;
+    const hp = Math.max(1, Math.round((opts.hp ?? spec.hp) * this.monsterHpMult));
     const m: MonsterS = { id, kind, x, z, rot: Math.atan2(me.x - x, me.z - z), hp, maxHp: hp, state: "submerged", targetId: "me" };
     this.state.monsters.set(id, m);
     this.ai.set(id, { scripted: !!opts.scripted, boss: !!opts.boss || spec.boss, nextAttack: this.now + 5000, attacks: 0, roamX: x, roamZ: z, farFor: 0, resurfaceAt: this.now + 1800, hitters: false, quiet: opts.quiet });
@@ -272,7 +278,7 @@ export class SoloNet implements GameNet {
         const zone = zoneAt(me.bobX || me.x, me.bobZ || me.z);
         const roll: FishRoll = this.hooks.rollFish?.(zone, this.state.storm) ?? this.defaultRoll(zone);
         const card: FishCardS = { speciesId: roll.speciesId, tier: roll.tier, weightKg: roll.weightKg, points: roll.points, at: Date.now(), catcher: me.name };
-        const diff = TIER_INFO[card.tier].difficulty;
+        const diff = Math.min(1, TIER_INFO[card.tier].difficulty + this.fishDiffBonus);
         const durationMs = Math.round(5000 + diff * 6000);
         this.pending = { card };
         this.pendingRoll = roll;
@@ -447,8 +453,11 @@ export class SoloNet implements GameNet {
     if (sq) sq.kills++;
     this.addXp(Math.round(spec.xp * (ai?.quiet ? 0.1 : 1) * this.loadout.skills.lootXpMult));
     if (ai?.hitters && !boss && !ai.quiet) {
-      const f = soloRollFish({ zone: "abyss", rodLevel: this.me.level, storm: false, legendaryMult: this.legendaryBoost, forceMinTier: spec.lootMinTier as Tier });
-      const card: FishCardS = { speciesId: f.species.id, tier: f.species.tier, weightKg: f.weightKg, points: f.points, at: Date.now(), catcher: this.me.name };
+      const campaign = this.hooks.rollLoot?.(spec.lootMinTier as Tier, m.x, m.z) ?? null;
+      const f = campaign ? null : soloRollFish({ zone: "abyss", rodLevel: this.me.level, storm: false, legendaryMult: this.legendaryBoost, forceMinTier: spec.lootMinTier as Tier });
+      const card: FishCardS = campaign
+        ? { speciesId: campaign.speciesId, tier: campaign.tier, weightKg: campaign.weightKg, points: campaign.points, at: Date.now(), catcher: this.me.name }
+        : { speciesId: f!.species.id, tier: f!.species.tier, weightKg: f!.weightKg, points: f!.points, at: Date.now(), catcher: this.me.name };
       this.me.unbanked.push(card);
       this.me.unbankedPoints += card.points;
       this.me.trophies = sortCards([...this.me.trophies, card]).slice(0, 10);
@@ -465,7 +474,9 @@ export class SoloNet implements GameNet {
   damage(amount: number, by: string) {
     const me = this.me;
     if (me.sunk || amount <= 0) return;
-    amount = Math.max(1, Math.round(amount * this.damageMult));
+    // Hard/Legendary: monsters and bosses (ids "m<n>") hit harder; hazards (lightning, coral, frost, floes) don't change
+    const fromMonster = /^m\d+$/.test(by);
+    amount = Math.max(1, Math.round(amount * this.damageMult * (fromMonster ? this.monsterDmgMult : 1)));
     me.hp = Math.max(0, me.hp - amount);
     this.emit("damaged", { amount, hp: me.hp, byMonster: by });
     this.progress({ t: "damage", amount, by });
@@ -609,7 +620,7 @@ export class SoloNet implements GameNet {
           if (!this.state.monsters.has(m.id)) return;
           const dmg = Math.round(spec.damage * zoneMult);
           if (Math.hypot(me.x - ax, me.z - az) < spec.attackRadius) this.damage(dmg, m.id);
-          for (const t of this.extraTargets()) if (t.alive && Math.hypot(t.x - ax, t.z - az) < spec.attackRadius) t.damage(Math.round(dmg * this.damageMult));
+          for (const t of this.extraTargets()) if (t.alive && Math.hypot(t.x - ax, t.z - az) < spec.attackRadius) t.damage(Math.round(dmg * this.damageMult * this.monsterDmgMult));
           if (m.state === "attacking") m.state = "chasing";
           if (m.kind === "kraken" && ai.attacks % 3 === 0) { m.state = "submerged"; ai.resurfaceAt = now + 6000; }
         });

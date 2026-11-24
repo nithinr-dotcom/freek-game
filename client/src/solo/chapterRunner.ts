@@ -3,11 +3,11 @@
  * rewards, hints and Assist after 3 fails. One instance per solo session; `def === null` is free roam.
  */
 import {
-  DOCK_POS, DOCK_RADIUS, ZONES, MATERIALS, computeGrade, betterGrade, getBoss, getChapter, allChapters, chaptersOfRegion, getRegion,
-  type CampaignChapter, type RegionDef, type Grade, type BossDef, type MonsterS, type MissionS, type ZoneId, type MaterialId, type PlayerS,
+  DOCK_POS, DOCK_RADIUS, ZONES, MATERIALS, MODE_RULES, computeGrade, betterGrade, getBoss, getChapter, allChapters, chaptersOfRegion, getRegion,
+  type CampaignChapter, type RegionDef, type Grade, type BossDef, type MonsterS, type MissionS, type ZoneId, type MaterialId, type PlayerS, type CampaignMode,
 } from "@freek/shared";
 import type { SoloNet } from "./SoloNet";
-import type { SoloSave } from "./save";
+import type { SoloSave, ChapterRecord } from "./save";
 import type { SoloClock } from "./clock";
 import type { Actors } from "./actors";
 import { ObjectiveEngine, isConstraint, type ObjCtx, type ObjEvent, type ObjRuntime } from "./objectives";
@@ -21,6 +21,8 @@ export interface ChapterResult {
   objectives: { title: string; done: boolean; optional: boolean }[];
   xp: number; coins: number; materials: Partial<Record<MaterialId, number>>;
   firstClear: boolean; newBest: boolean; unlockText?: string; next: CampaignChapter | null; boss?: BossDef;
+  /** P4: the difficulty it was played on */
+  mode: CampaignMode;
 }
 export interface FailInfo { chapter: CampaignChapter; reason: string; fails: number; hint: string | null; assistAvailable: boolean; checkpoint: string | null }
 
@@ -84,6 +86,33 @@ export class ChapterRunner {
     return allChapters().find((c) => !save.campaign.chapters[c.id]?.done && save.campaign.unlockedRegions.includes(c.region)) ?? null;
   }
 
+  // ======================================================================= P4 modes
+  /** the selected difficulty, if it is unlocked (Normal otherwise) */
+  static modeOf(save: SoloSave): CampaignMode {
+    const m = save.campaign.mode ?? "normal";
+    if (m === "legendary" && save.flags.legendaryUnlocked) return m;
+    if (m === "hard" && save.flags.hardUnlocked) return m;
+    return "normal";
+  }
+  /** a chapter's record for a mode (Normal = the campaign records) */
+  static record(save: SoloSave, id: number, mode: CampaignMode, create = false): ChapterRecord | undefined {
+    if (mode === "normal") return create ? (save.campaign.chapters[id] ??= { done: false, stars: 0, fails: 0 }) : save.campaign.chapters[id];
+    const recs = (save.campaign.modeRecords ??= {});
+    const m = create ? (recs[mode] ??= {}) : recs[mode];
+    if (!m) return undefined;
+    return create ? (m[id] ??= { done: false, stars: 0, fails: 0 }) : m[id];
+  }
+  /** mode of the chapter being played (free roam = normal) */
+  mode: CampaignMode = "normal";
+  get rules() { return MODE_RULES[this.mode]; }
+  /** effective time limit / ironman with the mode applied */
+  timeLimitOf(d: CampaignChapter) { return d.fail?.timeLimit ? Math.round(d.fail.timeLimit * this.rules.timeLimit) : undefined; }
+  ironmanOf(d: CampaignChapter) { return !!d.fail?.ironman || this.rules.ironman; }
+  private applyMode() {
+    const r = this.rules;
+    this.net.monsterHpMult = r.monsterHp; this.net.monsterDmgMult = r.monsterDamage; this.net.fishDiffBonus = r.fishDifficulty;
+  }
+
   // ======================================================================= start
   start(chapterId: number | CampaignChapter | null, opts: { retry?: boolean; assist?: boolean } = {}) {
     const env = this.env, net = this.net, save = this.save;
@@ -95,6 +124,8 @@ export class ChapterRunner {
     this.def = typeof chapterId === "object" ? chapterId : chapterId ? getChapter(chapterId) ?? null : null;
     if (this.def && this.def.region !== this.region.id) this.def = null; // other region: travel first
     this.assist = !!opts.assist && !!this.def;
+    this.mode = this.def ? ChapterRunner.modeOf(save) : "normal";
+    this.applyMode();
     env.setAssist(this.assist);
     this.elapsed = 0; this.damageTaken = 0; this.killCinematic = false; this.wrapUp = false; this.darkFor = 0; this.catches = 0; this.tipShown.clear();
     const d = this.def;
@@ -152,7 +183,7 @@ export class ChapterRunner {
     this.net.rerollImpossibleMissions();
   }
   /** free roam: every zone opened by a chapter you have reached */
-  private freeRoamZones(): ZoneId[] {
+  freeRoamZones(): ZoneId[] {
     const reached = chaptersOfRegion(this.region.id).filter((c) => this.save.campaign.chapters[c.id]?.done || c === ChapterRunner.nextChapter(this.save));
     const z = new Set<ZoneId>(["shallows"]);
     for (const c of reached) for (const k of c.setup?.zones ?? ["shallows", "reef", "abyss"]) z.add(k);
@@ -195,7 +226,7 @@ export class ChapterRunner {
   }
   onSunk() {
     if (this.status === "running" && this.wrapUp) { this.complete(); return; }
-    if (this.status === "running" && this.def?.fail?.ironman) { const run = this.runSeq; setTimeout(() => { if (run === this.runSeq) this.fail("Your boat sank (ironman)"); }, 1400); }
+    if (this.status === "running" && this.def && this.ironmanOf(this.def)) { const run = this.runSeq; setTimeout(() => { if (run === this.runSeq) this.fail("Your boat sank (ironman)"); }, 1400); }
   }
   onMonsterKilled(m: MonsterS, boss: boolean) {
     if (!boss || !this.boss || this.boss.m.id !== m.id) return;
@@ -231,7 +262,8 @@ export class ChapterRunner {
     if (this.status !== "running") return;
     if (this.wrapUp && !me.sunk && Math.hypot(me.x - DOCK_POS.x, me.z - DOCK_POS.z) < DOCK_RADIUS && !me.unbanked.length) { this.complete(); return; }
     // fail conditions
-    if (d.fail?.timeLimit && !this.wrapUp && this.elapsed >= d.fail.timeLimit) { this.fail("Out of time!"); return; }
+    const limit = this.timeLimitOf(d);
+    if (limit && !this.wrapUp && this.elapsed >= limit) { this.fail("Out of time!"); return; }
     const m = this.env.meters();
     if (this.region.hazards.cold && m.warmth <= 0) { this.fail("You froze!"); return; }
     if (this.region.hazards.darkness) {
@@ -256,7 +288,7 @@ export class ChapterRunner {
     let x = me.x + Math.sin(a) * 42, z = me.z + Math.cos(a) * 42;
     if (Math.hypot(x, z) < 50) { x = Math.sin(a) * 60; z = Math.cos(a) * 60; }
     const m = this.net.spawnMonster(def.monsterKind, { scripted: true, boss: true, hp, at: { x, z } });
-    m.maxHp = def.hp;
+    m.maxHp = Math.round(def.hp * this.net.monsterHpMult);
     const ctl = createBossBehaviour(def.id, {
       net: this.net, monster: m, def, fx: this.env.bossFx, startPhase: cp, emit: (ev) => this.feed(ev),
       onPhase: (p) => {
@@ -283,7 +315,7 @@ export class ChapterRunner {
     if (!d || this.status !== "running") return;
     this.status = "failed"; this.busy = true;
     this.endScript();
-    const rec = (this.save.campaign.chapters[d.id] ??= { done: false, stars: 0, fails: 0 });
+    const rec = ChapterRunner.record(this.save, d.id, this.mode, true)!;
     rec.fails++;
     this.net.persist();
     const cp = this.save.campaign.current?.checkpointPhase ?? 0;
@@ -309,13 +341,14 @@ export class ChapterRunner {
     const stars = obj.stars;
     const damagePct = this.damageTaken / Math.max(1, net.maxHp);
     const grade = computeGrade({ stars, elapsedSec: this.elapsed, parSeconds: d.parSeconds, damagePct, assist: this.assist });
-    const rec = (save.campaign.chapters[d.id] ??= { done: false, stars: 0, fails: 0 });
+    const mode = this.mode;
+    const rec = ChapterRunner.record(save, d.id, mode, true)!;
     const firstClear = !rec.done;
     const newBest = !rec.grade || betterGrade(rec.grade, grade) !== rec.grade || stars > rec.stars;
     rec.done = true; rec.stars = Math.max(rec.stars, stars); rec.grade = betterGrade(rec.grade, grade);
     rec.bestTime = Math.min(rec.bestTime ?? Infinity, Math.round(this.elapsed));
     rec.fails = 0;
-    const k = firstClear ? 1 : 0.25;
+    const k = firstClear ? this.rules.firstClearPay : 0.25;
     const xp = Math.round(d.rewards.xp * k), coins = Math.round(d.rewards.coins * k);
     const mats: Partial<Record<MaterialId, number>> = {};
     const add = (id: MaterialId, n: number) => { if (n > 0) mats[id] = (mats[id] ?? 0) + n; };
@@ -323,7 +356,7 @@ export class ChapterRunner {
     add(this.region.material, obj.items.filter((o) => o.optional && o.state === "done").length * (firstClear ? 2 : 1));
     const boss = d.boss ? getBoss(d.boss) : undefined;
     if (boss) {
-      add(boss.trophy, 1);
+      add(boss.trophy, firstClear && this.mode === "normal" ? 2 : 1); // P4 balance: 2 on the first clear (T4/T5 crafts need one each)
       if (!save.bossesBeaten.includes(boss.id)) {
         save.bossesBeaten.push(boss.id);
         if (!save.titles.includes(boss.title)) save.titles.push(boss.title);
@@ -331,14 +364,15 @@ export class ChapterRunner {
       }
     }
     for (const [id, n] of Object.entries(mats)) this.env.grantMaterial(id as MaterialId, n as number);
-    if (firstClear && d.rewards.unlockRegion && !save.campaign.unlockedRegions.includes(d.rewards.unlockRegion)) save.campaign.unlockedRegions.push(d.rewards.unlockRegion);
+    if (firstClear && mode === "normal" && d.rewards.unlockRegion && !save.campaign.unlockedRegions.includes(d.rewards.unlockRegion)) save.campaign.unlockedRegions.push(d.rewards.unlockRegion);
     net.addXp(xp); net.addCoins(coins);
     save.campaign.current = null;
-    const next = ChapterRunner.nextChapter(save);
+    const next = mode === "normal" ? ChapterRunner.nextChapter(save)
+      : allChapters().find((c) => c.id > d.id && !ChapterRunner.record(save, c.id, mode)?.done) ?? allChapters().find((c) => !ChapterRunner.record(save, c.id, mode)?.done) ?? null;
     const result: ChapterResult = {
       chapter: d, stars, grade, elapsed: this.elapsed, damagePct, assist: this.assist,
       objectives: obj.items.map((o) => ({ title: o.def.title, done: o.state === "done", optional: o.optional })),
-      xp, coins, materials: mats, firstClear, newBest, unlockText: firstClear ? d.rewards.text : undefined, next, boss,
+      xp, coins, materials: mats, firstClear, newBest, unlockText: firstClear && mode === "normal" ? d.rewards.text : undefined, next, boss, mode,
     };
     this.env.onComplete(result);
     net.persist();
@@ -366,13 +400,14 @@ export class ChapterRunner {
       optional: o.optional, state: o.state, numText: obj.numText(o, c),
     }));
   }
-  get trackerLabel() { return this.def ? `CH.${this.def.id} ${this.def.title.toUpperCase()}` : `FREE ROAM · ${this.region.name.toUpperCase()}`; }
+  get trackerLabel() { return this.def ? `${this.mode === "hard" ? "💀 " : this.mode === "legendary" ? "👑 " : ""}CH.${this.def.id} ${this.def.title.toUpperCase()}` : `FREE ROAM · ${this.region.name.toUpperCase()}`; }
   /** HUD timer: countdown when there's a time limit, else elapsed vs par */
   timer(): { text: string; urgent: boolean; limit: boolean } | null {
     const d = this.def;
     if (!d || (this.status !== "running" && this.status !== "completing")) return null;
     if (this.wrapUp) return { text: "Return to the dock to finish", urgent: false, limit: false };
-    if (d.fail?.timeLimit) { const left = d.fail.timeLimit - this.elapsed; return { text: fmt(left), urgent: left < 30, limit: true }; }
+    const limit = this.timeLimitOf(d);
+    if (limit) { const left = limit - this.elapsed; return { text: fmt(left), urgent: left < 30, limit: true }; }
     return { text: `${fmt(this.elapsed)} / par ${fmt(d.parSeconds)}`, urgent: false, limit: false };
   }
   bossBar(): { name: string; hp: number; maxHp: number; pips: number[]; phase: number } | null {

@@ -1,7 +1,7 @@
 /** Single-player save v2 (localStorage, versioned key) with migration from v1, plus client settings. */
 import {
   TIER_INFO, tierRank, GEAR_SLOTS, DEFAULT_COSMETICS, levelFromXp,
-  type FishCardS, type MissionS, type MaterialId, type GearSlot, type CosmeticKind, type RegionId, type Grade,
+  type FishCardS, type MissionS, type MaterialId, type GearSlot, type CosmeticKind, type RegionId, type Grade, type CampaignMode, type BountyDef,
 } from "@freek/shared";
 
 export const SAVE_KEY = "tidebreakers.solo.v2";
@@ -9,6 +9,7 @@ export const SAVE_KEY_V1 = "tidebreakers.solo.v1";
 const SETTINGS_KEY = "tidebreakers.settings.v1";
 
 export interface ChapterRecord { done: boolean; stars: number; grade?: Grade; bestTime?: number; fails: number; assistOffered?: boolean }
+export interface BountyBoardSave { list: BountyDef[]; active: string | null; seq: number; done: number }
 export interface CodexEntry { n: number; recordKg: number; first: number }
 
 export interface SoloSave {
@@ -38,13 +39,21 @@ export interface SoloSave {
     chapters: Record<number, ChapterRecord>;
     /** chapter being played (restarts from its start, or the boss checkpoint, on reload) */
     current: { chapterId: number; introSeen: boolean; checkpointPhase: number } | null;
+    /** P4: difficulty the chapters are played on (Sea Chart selector); records above are Normal */
+    mode?: CampaignMode;
+    /** P4: best grade/stars/time per chapter on Hard and Legendary */
+    modeRecords?: Partial<Record<"hard" | "legendary", Record<number, ChapterRecord>>>;
   };
+  /** P4 Bounty Board, per region: the 3 posted bounties, the accepted one, a sequence for ids */
+  bounties?: Partial<Record<RegionId, BountyBoardSave>>;
   /** solo clock, hour 0..24 */
   clockHour: number;
   flags: {
     migratedFromV1?: boolean; oldCampaign?: boolean; seenWorkshop?: boolean;
     /** P3 finale (chapter 30 beaten): campaign done, Free Play in every region, Hard mode unlocked (P4 implements Hard) */
     campaignDone?: boolean; freePlayAll?: boolean; hardUnlocked?: boolean;
+    /** P4: every chapter cleared on Hard (or Legendary); the ending has been seen (credits replay) */
+    legendaryUnlocked?: boolean; creditsSeen?: boolean;
   };
   createdAt: number; updatedAt: number;
 }

@@ -7,6 +7,7 @@ import type { Game } from "../game/Game";
 import { computeLoadout } from "./loadout";
 import { DEV_CHAPTERS } from "./devChapters";
 import { devP3 } from "./devP3";
+import { devP4 } from "./devP4";
 
 export function installDevApi(game: Game) {
   const mode = () => game.soloModeRef!;
@@ -90,6 +91,7 @@ export function installDevApi(game: Game) {
     tier: TIER_INFO, gearSlots: GEAR_SLOTS, getChapter,
   };
   Object.assign(api, devP3(game, api));
+  Object.assign(api, devP4(game, api));
   (window as any).__dev = api;
   return api;
 }

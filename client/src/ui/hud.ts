@@ -237,7 +237,10 @@ export class Hud {
       this.bossPips.innerHTML = (b.pips ?? []).map((p, i) => `<i class="${(b.phase ?? 0) > i ? "passed" : ""}" style="left:${p * 100}%"></i>`).join("");
       this.boss.classList.remove("phase-pop"); void this.boss.offsetWidth; if ((b.phase ?? 0) > 0) this.boss.classList.add("phase-pop");
     }
-    setText(this.bossName, `☠ ${b.name}`);
+    // "Boss · Phase" (solo): the phase goes in its own span so it can wrap under the name on phones
+    const [bn, ...ph] = b.name.split(" · ");
+    const nameHtml = `☠ ${escapeHtml(bn)}${ph.length ? ` <span class="bn-phase">· ${escapeHtml(ph.join(" · "))}</span>` : ""}`;
+    if (this.bossName.dataset.sig !== nameHtml) { this.bossName.dataset.sig = nameHtml; this.bossName.innerHTML = nameHtml; }
     this.bossFill.style.width = `${Math.max(0, Math.min(1, b.hp / b.maxHp)) * 100}%`;
     setText(this.bossHp, `${Math.ceil(b.hp)} / ${b.maxHp}`);
   }

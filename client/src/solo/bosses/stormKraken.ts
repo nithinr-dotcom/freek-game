@@ -50,7 +50,7 @@ class StormKraken extends BossBehaviour {
       const a = base + (n === 4 ? (i / 4) * Math.PI * 2 + Math.PI / 4 : (i === 0 ? -0.7 : 0.7));
       const x = this.cx + Math.sin(a) * RING, z = this.cz + Math.cos(a) * RING;
       const tm = net.spawnMonster("serpent", { scripted: true, quiet: true, hp: TENTACLE_HP, at: { x, z } });
-      tm.maxHp = TENTACLE_HP;
+      tm.maxHp = tm.hp; // TENTACLE_HP (Hard: scaled)
       const t = new Tentacle(this.env, tm, this.m.id, i * 1.3, first ? 1.4 + i * 0.9 : 1.2 + i * 1.4);
       net.controllers.set(tm.id, t);
       this.env.fx.dress?.(tm.id, buildTentacle(t.vis), "Tentacle", { labelY: 15, aimY: 6, cls: "minion" });

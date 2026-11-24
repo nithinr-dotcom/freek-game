@@ -1,5 +1,5 @@
 /** Fish Codex (silhouettes until caught, clue or conditions, record weight, region) + achievements list. */
-import { regionList, speciesOfRegion, getRegion, TIER_INFO, ACHIEVEMENTS, TITLES_BY_ID, COSMETICS_BY_ID, tierRank, type CampaignSpecies, type RegionId } from "@freek/shared";
+import { regionList, speciesOfRegion, getRegion, TIER_INFO, ACHIEVEMENTS, TITLES_BY_ID, COSMETICS_BY_ID, TITLES, COSMETICS, achievementGroup, tierRank, type CampaignSpecies, type RegionId } from "@freek/shared";
 import type { SoloSave } from "../solo/save";
 import { regionCompletion, totalCompletion } from "../solo/codex";
 import { speciesInfo } from "../solo/species";
@@ -57,17 +57,25 @@ export function openCodex(root: HTMLElement, save: SoloSave, start: "fish" | "ac
   const achTab = () => {
     const got = ACHIEVEMENTS.filter((a) => save.achievements[a.id]).length;
     const out = h("div");
-    out.append(h("div.cx-total", { html: `<div class="cx-pct">${got}</div><div><b>${got} / ${ACHIEVEMENTS.length}</b> achievements<div class="cx-bar"><i style="width:${(got / ACHIEVEMENTS.length) * 100}%"></i></div></div>` }));
-    const grid = h("div.ach-grid");
-    for (const a of ACHIEVEMENTS) {
-      const on = !!save.achievements[a.id];
-      if (a.hidden && !on) continue;
-      const prog = Math.min(a.cond.gte, save.stats[a.cond.stat] ?? 0);
-      const r = a.reward;
-      const reward = [r?.title ? `🎖 ${TITLES_BY_ID[r.title]?.name}` : "", r?.cosmetic ? `🎨 ${COSMETICS_BY_ID[r.cosmetic]?.name}` : "", r?.coins ? `● ${r.coins}` : ""].filter(Boolean).join(" · ");
-      grid.append(h(`div.ach-card${on ? ".on" : ""}`, { html: `<span class="ach-icon">${on ? a.icon : "🔒"}</span><div><div class="ach-name">${escapeHtml(a.name)}</div><div class="ach-desc">${escapeHtml(a.desc)}</div>${!on && a.cond.gte > 1 ? `<div class="ach-prog"><i style="width:${(prog / a.cond.gte) * 100}%"></i><span>${prog}/${a.cond.gte}</span></div>` : ""}${reward ? `<div class="ach-reward">${escapeHtml(reward)}</div>` : ""}</div>` }));
+    out.append(h("div.cx-total", { html: `<div class="cx-pct">${got}</div><div><b>${got} / ${ACHIEVEMENTS.length}</b> achievements · ${save.titles.length}/${TITLES.length} titles · ${save.cosmetics.length}/${COSMETICS.length} cosmetics<div class="cx-bar"><i style="width:${(got / ACHIEVEMENTS.length) * 100}%"></i></div></div>` }));
+    const GROUPS: [ReturnType<typeof achievementGroup>, string][] = [["voyage", "⚓ The Voyage"], ["angler", "🎣 Angler"], ["collector", "📖 Collector"], ["hunter", "🔱 Hunter & Bounties"], ["modes", "💀 Hard & Legendary"]];
+    for (const [g, label] of GROUPS) {
+      const list = ACHIEVEMENTS.filter((a) => achievementGroup(a) === g && (!a.hidden || save.achievements[a.id]));
+      if (!list.length) continue;
+      const n = list.filter((a) => save.achievements[a.id]).length;
+      out.append(h("div.cx-region.ach-group", { html: `<span>${label}</span><span>${n}/${list.length}</span>` }));
+      const grid = h("div.ach-grid");
+      for (const a of list) {
+        const on = !!save.achievements[a.id];
+        const prog = Math.min(a.cond.gte, save.stats[a.cond.stat] ?? 0);
+        const r = a.reward;
+        const reward = [r?.title ? `🎖 ${TITLES_BY_ID[r.title]?.name}` : "", r?.cosmetic ? `🎨 ${COSMETICS_BY_ID[r.cosmetic]?.name}` : "", r?.coins ? `● ${r.coins}` : ""].filter(Boolean).join(" · ");
+        const when = on ? new Date(save.achievements[a.id]).toLocaleDateString() : "";
+        grid.append(h(`div.ach-card${on ? ".on" : ""}`, { html: `<span class="ach-icon">${on ? a.icon : "🔒"}</span><div><div class="ach-name">${escapeHtml(a.name)}</div><div class="ach-desc">${escapeHtml(a.desc)}</div>${!on && a.cond.gte > 1 ? `<div class="ach-prog"><i style="width:${(prog / a.cond.gte) * 100}%"></i><span>${prog}/${a.cond.gte}</span></div>` : ""}${reward ? `<div class="ach-reward">${escapeHtml(reward)}</div>` : ""}${when ? `<div class="ach-when">✔ ${escapeHtml(when)}</div>` : ""}</div>` }));
+      }
+      out.append(grid);
     }
-    out.append(grid);
+    out.append(h("div.ach-foot", null, "Titles and cosmetics are equipped in the Workshop → Boat & Titles."));
     return out;
   };
   const render = () => {
