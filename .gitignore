@@ -3,3 +3,4 @@ dist
 server/data/*.json
 .env
 .env.local
+.claude/worktrees/
