@@ -37,6 +37,19 @@ export class MonsterEntity {
     this.bar = el.querySelector(".mfill") as HTMLElement;
     this.hpText = el.querySelector(".mhp") as HTMLElement;
     this.label = labels.add(el, 400);
+    this.tagEl = el;
+  }
+  private tagEl: HTMLElement;
+  /** name tag / aim height override (solo boss parts) */
+  private labelY = 0; private aimY = 0;
+
+  /** solo bosses: swap in a custom rig and/or rename the tag (rig null keeps the model) */
+  setVisual(rig: MonsterRig | null, name?: string, opts: { labelY?: number; aimY?: number; cls?: string } = {}) {
+    if (rig) { this.root.remove(this.model); this.rig = rig; this.model = rig.root; this.root.add(this.model); }
+    if (name) this.tagEl.querySelector(".mname")!.textContent = `☠ ${name}`;
+    if (opts.cls) this.tagEl.classList.add(opts.cls);
+    if (opts.labelY) this.labelY = opts.labelY;
+    if (opts.aimY) this.aimY = opts.aimY;
   }
 
   get isBoss() { return MONSTERS[this.kind]?.boss ?? false; }
@@ -75,12 +88,12 @@ export class MonsterEntity {
     const k = Math.max(0, Math.min(1, this.hp / this.maxHp));
     this.bar.style.width = `${(k * 100).toFixed(1)}%`;
     this.hpText.textContent = `${Math.ceil(this.hp)} / ${this.maxHp}`;
-    this.label.pos.set(this.x, wy + (this.kind === "kraken" ? 15 : 9), this.z);
+    this.label.pos.set(this.x, wy + (this.labelY || (this.kind === "kraken" ? 15 : 9)), this.z);
     this.label.visible = this.depth > -4;
   }
 
   /** point to aim at / show hits */
-  hitPoint(out: THREE.Vector3) { return out.set(this.x, waveHeight(this.x, this.z) + (this.kind === "kraken" ? 5 : 2.5), this.z); }
+  hitPoint(out: THREE.Vector3) { return out.set(this.x, waveHeight(this.x, this.z) + (this.aimY || (this.kind === "kraken" ? 5 : 2.5)), this.z); }
 
   dispose() {
     this.scene.remove(this.root);

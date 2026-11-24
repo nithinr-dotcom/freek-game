@@ -11,7 +11,9 @@ export type ObjEvent =
   | { t: "collect"; kind: string }
   | { t: "npc_arrive"; npcId: string; pointId: string }
   | { t: "npc_dead"; npcId: string }
-  | { t: "lightning_hit" };
+  | { t: "lightning_hit" }
+  /** a scripted rule was violated (breaks `no_flag` constraints with the same flag) */
+  | { t: "flag"; flag: string };
 
 export interface ObjCtx {
   elapsed: number;
@@ -32,10 +34,10 @@ export interface ObjRuntime {
   target: number;
   state: ObjState;
   /** per-type scratch data */
-  data: { seen?: string[]; streak?: number; pending?: { clean: boolean }[] };
+  data: { seen?: string[]; streak?: number; pending?: { clean: boolean }[]; sub?: ObjectiveEngine };
 }
 
-export function isConstraint(k: ObjectiveKind) { return CONSTRAINT_TYPES.includes(k.type); }
+export function isConstraint(k: ObjectiveKind) { return CONSTRAINT_TYPES.includes(k.type) || k.type === "no_flag"; }
 
 export function targetOf(k: ObjectiveKind): number {
   switch (k.type) {
@@ -43,6 +45,7 @@ export function targetOf(k: ObjectiveKind): number {
     case "harpoon_hits": case "kill": case "collect": case "bank_points_trip": case "bank_fish": return k.n;
     case "bank_any": return k.n ?? 1;
     case "defend": case "survive": return k.seconds;
+    case "all": return k.parts.length;
     default: return 1;
   }
 }
@@ -56,7 +59,25 @@ export class ObjectiveEngine {
 
   constructor(main: ObjectiveDef, optional: ObjectiveDef[]) {
     this.items = [main, ...optional].map((def, i) => ({ def, optional: i > 0, progress: 0, target: targetOf(def.kind), state: "active", data: {} }));
+    for (const o of this.items) {
+      const k = o.def.kind;
+      if (k.type === "all") {
+        const defs = k.parts.map((kind, j) => ({ id: `${o.def.id}_${j}`, title: o.def.title, kind }));
+        o.data.sub = new ObjectiveEngine(defs[0], defs.slice(1));
+      }
+    }
   }
+  /** compound objectives: mirror the parts (broken if any part breaks, done when all are done) */
+  private syncAll(o: ObjRuntime) {
+    const sub = o.data.sub;
+    if (!sub || o.state !== "active") return;
+    if (sub.items.some((p) => p.state === "broken")) { this.set(o, "broken"); return; }
+    o.progress = sub.items.filter((p) => p.state === "done").length;
+    if (o.progress >= o.target) this.set(o, "done");
+  }
+  /** chapter scripts / bosses: force an objective's outcome by id */
+  force(id: string, state: "done" | "broken") { const o = this.items.find((i) => i.def.id === id); if (o) this.set(o, state); }
+  get(id: string) { return this.items.find((i) => i.def.id === id); }
   get main() { return this.items[0]; }
   get mainDone() { return this.main.state === "done"; }
   get mainBroken() { return this.main.state === "broken"; }
@@ -124,6 +145,8 @@ export class ObjectiveEngine {
         case "no_snap": if (ev.t === "snap") this.set(o, "broken"); break;
         case "no_sink": if (ev.t === "sink") this.set(o, "broken"); break;
         case "no_lightning_hits": if (ev.t === "lightning_hit") this.set(o, "broken"); break;
+        case "no_flag": if (ev.t === "flag" && ev.flag === k.flag) this.set(o, "broken"); break;
+        case "all": o.data.sub?.event(ev, ctx); this.syncAll(o); break;
         default: break;
       }
     }
@@ -154,6 +177,7 @@ export class ObjectiveEngine {
         }
         case "under_time": if (ctx.elapsed > k.seconds) this.set(o, "broken"); break;
         case "warmth_above": if (ctx.warmthPct < k.pct) this.set(o, "broken"); break;
+        case "all": o.data.sub?.tick(dt, ctx); this.syncAll(o); break;
         default: break;
       }
     }
@@ -173,6 +197,7 @@ export class ObjectiveEngine {
     if (o.state === "done") return "✔";
     if (k.type === "defend" || k.type === "survive") return `${fmtT(o.progress)} / ${fmtT(o.target)}`;
     if (k.type === "bank_fish") return `${o.progress}/${o.target}${ctx.unbankedFish ? ` · ${ctx.unbankedFish} in bag` : ""}`;
+    if (k.type === "all" && o.data.sub) { const sub = o.data.sub; return sub.items.map((p) => (p.state === "done" ? "✔" : sub.numText(p, ctx))).join(" · "); }
     if (k.type === "escort") { const hp = ctx.npcHpPct(k.npcId); return hp === undefined ? "" : `${Math.round(hp * 100)}% hp`; }
     if (o.target <= 1) return "0/1";
     return `${Math.floor(o.progress)}/${o.target}`;

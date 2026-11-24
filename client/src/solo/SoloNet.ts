@@ -36,7 +36,13 @@ export interface SoloHooks {
 export interface MonsterTarget { id: string; x: number; z: number; alive: boolean; priority: number; damage(n: number): void }
 
 /** a boss behaviour takes over a monster's AI */
-export interface MonsterController { update(dt: number, now: number): void; onHit?(dmg: number): void; hitRadius?: number }
+export interface MonsterController {
+  update(dt: number, now: number): void; onHit?(dmg: number): void; hitRadius?: number;
+  /** harpoon damage multiplier right now (0 = immune, e.g. a closed shell; 2 = exposed weak point) */
+  damageScale?(): number;
+  /** the monster left the world (killed, retry, chapter change): clean up parts, overlays, … */
+  dispose?(): void;
+}
 
 interface MonsterAI {
   scripted: boolean; boss: boolean;
@@ -44,6 +50,8 @@ interface MonsterAI {
   roamX: number; roamZ: number;
   farFor: number; resurfaceAt: number;
   hitters: boolean;
+  /** boss parts / minions: no spawn or kill announcements, no fish loot */
+  quiet?: boolean;
 }
 
 const SPAWN_CHECK_MS = 12_000;
@@ -169,7 +177,7 @@ export class SoloNet implements GameNet {
     return found;
   }
 
-  spawnMonster(kind: MonsterKind, opts: { scripted?: boolean; boss?: boolean; dist?: number; hp?: number; at?: { x: number; z: number } } = {}): MonsterS {
+  spawnMonster(kind: MonsterKind, opts: { scripted?: boolean; boss?: boolean; dist?: number; hp?: number; at?: { x: number; z: number }; quiet?: boolean } = {}): MonsterS {
     const me = this.me;
     const id = `m${++this.monsterSeq}`;
     let x = 0, z = 0;
@@ -185,9 +193,9 @@ export class SoloNet implements GameNet {
     const hp = opts.hp ?? spec.hp;
     const m: MonsterS = { id, kind, x, z, rot: Math.atan2(me.x - x, me.z - z), hp, maxHp: hp, state: "submerged", targetId: "me" };
     this.state.monsters.set(id, m);
-    this.ai.set(id, { scripted: !!opts.scripted, boss: !!opts.boss || spec.boss, nextAttack: this.now + 5000, attacks: 0, roamX: x, roamZ: z, farFor: 0, resurfaceAt: this.now + 1800, hitters: false });
+    this.ai.set(id, { scripted: !!opts.scripted, boss: !!opts.boss || spec.boss, nextAttack: this.now + 5000, attacks: 0, roamX: x, roamZ: z, farFor: 0, resurfaceAt: this.now + 1800, hitters: false, quiet: opts.quiet });
     for (const cb of this.addM) cb(m, id);
-    if (!opts.boss) this.emit("announce", { kind: "monster_spawn", text: `${spec.name} has appeared!`, color: "#ff4d4d", x, z });
+    if (!opts.boss && !opts.quiet) this.emit("announce", { kind: "monster_spawn", text: `${spec.name} has appeared!`, color: "#ff4d4d", x, z });
     this.lastSpawnAt = this.now;
     return m;
   }
@@ -196,7 +204,9 @@ export class SoloNet implements GameNet {
     if (!this.state.monsters.has(m.id)) return;
     this.state.monsters.delete(m.id);
     this.ai.delete(m.id);
+    const ctl = this.controllers.get(m.id);
     this.controllers.delete(m.id);
+    ctl?.dispose?.();
     for (const cb of this.remM) cb(m, m.id);
   }
   clearMonsters() { [...this.state.monsters.values()].forEach((m) => this.removeMonster(m)); }
@@ -407,8 +417,9 @@ export class SoloNet implements GameNet {
       if (m.state !== "submerged" && Math.hypot(m.x - tx, m.z - tz) < r + (twin ? 1.5 : 0)) hit = m;
     });
     const L = this.loadout;
-    const crit = !!hit && Math.random() < L.skills.critChance;
-    const dmg = Math.round(L.harpoonDamage * (crit ? 2 : 1) * (twin ? 0.6 : 1));
+    const scale = hit ? this.controllers.get(hit.id)?.damageScale?.() ?? 1 : 1;
+    const crit = !!hit && (Math.random() < L.skills.critChance || scale > 1);
+    const dmg = Math.round(L.harpoonDamage * (crit ? 2 : 1) * (twin ? 0.6 : 1) * (scale > 1 ? scale / 2 : scale));
     this.emit("harpoonFx", { from: "me", sx: me.x, sz: me.z, tx, tz, hitMonster: hit?.id, dmg: hit ? dmg : undefined });
     if (!hit) return;
     const m = hit;
@@ -416,7 +427,7 @@ export class SoloNet implements GameNet {
     if (ai) ai.hitters = true;
     this.later(250, () => {
       if (!this.state.monsters.has(m.id)) return;
-      m.hp = Math.max(0, m.hp - dmg);
+      if (dmg > 0) m.hp = Math.max(0, m.hp - dmg);
       this.hooks.onHarpoonHit?.(m, dmg, crit);
       this.controllers.get(m.id)?.onHit?.(dmg);
       this.progress({ t: "hit", dmg, monsterId: m.id });
@@ -429,11 +440,11 @@ export class SoloNet implements GameNet {
     const spec = MONSTERS[m.kind];
     const boss = !!ai?.boss;
     this.removeMonster(m);
-    if (!boss) this.emit("announce", { kind: "monster_kill", text: `${spec.name} was slain!`, color: "#ffd24a", x: m.x, z: m.z });
+    if (!boss && !ai?.quiet) this.emit("announce", { kind: "monster_kill", text: `${spec.name} was slain!`, color: "#ffd24a", x: m.x, z: m.z });
     const sq = this.state.squads.get("tide");
     if (sq) sq.kills++;
-    this.addXp(Math.round(spec.xp * this.loadout.skills.lootXpMult));
-    if (ai?.hitters && !boss) {
+    this.addXp(Math.round(spec.xp * (ai?.quiet ? 0.1 : 1) * this.loadout.skills.lootXpMult));
+    if (ai?.hitters && !boss && !ai.quiet) {
       const f = soloRollFish({ zone: "abyss", rodLevel: this.me.level, storm: false, legendaryMult: this.legendaryBoost, forceMinTier: spec.lootMinTier as Tier });
       const card: FishCardS = { speciesId: f.species.id, tier: f.species.tier, weightKg: f.weightKg, points: f.points, at: Date.now(), catcher: this.me.name };
       this.me.unbanked.push(card);
