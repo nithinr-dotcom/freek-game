@@ -6,7 +6,7 @@ services:
     name: tidebreakers-server
     runtime: node
     plan: free
-    branch: endless-tide
+    branch: main
     buildCommand: npm ci --include=dev
     startCommand: npm run start -w server
     envVars:
