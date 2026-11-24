@@ -41,6 +41,15 @@ export class MonsterEntity {
 
   get isBoss() { return MONSTERS[this.kind]?.boss ?? false; }
 
+  /** P3 (solo): custom name / model / label height for campaign bosses and horrors (the default rig is hidden) */
+  labelY = 0;
+  setLook(name: string, model?: THREE.Object3D, labelY = 0) {
+    const n = this.label.el.querySelector(".mname");
+    if (n) n.textContent = `☠ ${name}`;
+    if (model) { this.model.visible = false; this.root.add(model); }
+    this.labelY = labelY;
+  }
+
   attack() { this.attackT = 0.001; }
 
   sync(m: MonsterS) {
@@ -75,7 +84,7 @@ export class MonsterEntity {
     const k = Math.max(0, Math.min(1, this.hp / this.maxHp));
     this.bar.style.width = `${(k * 100).toFixed(1)}%`;
     this.hpText.textContent = `${Math.ceil(this.hp)} / ${this.maxHp}`;
-    this.label.pos.set(this.x, wy + (this.kind === "kraken" ? 15 : 9), this.z);
+    this.label.pos.set(this.x, wy + (this.labelY || (this.kind === "kraken" ? 15 : 9)), this.z);
     this.label.visible = this.depth > -4;
   }
 

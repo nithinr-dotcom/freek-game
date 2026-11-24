@@ -199,6 +199,8 @@ export class SoloNet implements GameNet {
     this.controllers.delete(m.id);
     for (const cb of this.remM) cb(m, m.id);
   }
+  /** P3: scripted kill (the Eye Duel finishes the Maelstrom Eye) */
+  kill(m: MonsterS) { if (this.state.monsters.has(m.id)) { m.hp = 0; this.killMonster(m); } }
   clearMonsters() { [...this.state.monsters.values()].forEach((m) => this.removeMonster(m)); }
   isBoss(id: string) { return !!this.ai.get(id)?.boss; }
 

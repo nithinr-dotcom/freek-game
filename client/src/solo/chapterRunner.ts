@@ -44,6 +44,9 @@ export interface RunnerEnv {
   openChart(): void;
   grantMaterial(id: MaterialId, n: number): void;
   meters(): { warmth: number; fuel: number; dark: boolean };
+  /** P3: optional hooks for region hazards (cold, lantern, floes): chapter start + every objective event */
+  onStart?(def: CampaignChapter | null): void;
+  onEvent?(ev: ObjEvent): void;
 }
 
 const fmt = (s: number) => `${Math.floor(Math.max(0, s) / 60)}:${String(Math.floor(Math.max(0, s) % 60)).padStart(2, "0")}`;
@@ -96,6 +99,7 @@ export class ChapterRunner {
       this.applyZones(this.freeRoamZones());
       net.randomMonsters = true; net.randomKraken = true; net.tutorial = false; net.setCalm(false);
       env.ui.banner(null, this.region);
+      env.onStart?.(null);
       net.persist();
       return;
     }
@@ -113,6 +117,7 @@ export class ChapterRunner {
     if (s.startHour !== undefined) env.clock.hour = s.startHour;
     for (const [id, n] of Object.entries(s.startBait ?? {})) save.bait[id] = (save.bait[id] ?? 0) + n;
     env.actors.build(d, this.region);
+    env.onStart?.(d);
     this.obj = new ObjectiveEngine(d.main, d.optional);
     this.obj.onChange = (o) => this.onObjChange(o);
     net.persist();
@@ -150,7 +155,7 @@ export class ChapterRunner {
     return {
       elapsed: this.elapsed,
       npcHpPct: (id) => { const n = this.env.actors.npc(id); return n ? (n.alive ? n.hpPct : 0) : undefined; },
-      warmthPct: m.warmth, storm: this.net.state.storm, night: this.env.clock.phase === "night",
+      warmthPct: m.warmth, fuelPct: m.fuel, storm: this.net.state.storm, night: this.env.clock.phase === "night",
       monstersAlive: this.net.state.monsters.size, unbankedFish: this.net.me.unbanked.length,
     };
   }
@@ -171,6 +176,7 @@ export class ChapterRunner {
     this.feed(ev);
   }
   feed(ev: ObjEvent) {
+    this.env.onEvent?.(ev);
     if (this.status !== "running" || !this.obj) return;
     this.obj.event(ev, this.ctx());
     this.checkDone();

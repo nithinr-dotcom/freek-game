@@ -19,6 +19,8 @@ import { campaignRoll, speciesInfo } from "../solo/species";
 import { regionClient, type RegionDecor } from "../solo/regions";
 import type { BossFx } from "../solo/bosses";
 import { Telegraphs } from "../fx/telegraphs";
+import { HazardHost } from "../solo/hazards";
+import { applyFinaleUnlocks, playFinale, FINALE_CHAPTER } from "../solo/finale";
 import { CampaignScreens } from "../ui/campaignScreens";
 import { SoloHud } from "../ui/soloHud";
 import { openSeaChart } from "../ui/seaChart";
@@ -55,6 +57,9 @@ export class SoloMode {
   readonly runner: ChapterRunner;
   readonly actors: Actors;
   readonly ach: AchievementTracker;
+  /** P3 region hazards (cold, floes, lantern, horrors, whirlpool) */
+  readonly hazards: HazardHost;
+  private finaleUnlocks: string[] | null = null;
   private screens: CampaignScreens;
   private shud: SoloHud;
   private tele: Telegraphs;
@@ -124,17 +129,31 @@ export class SoloMode {
       announce: (t) => g.feed.announce(t, "#ff4fd8", "☠", true),
     };
 
+    this.hazards = new HazardHost({
+      ui: g.ui, scene: g.scene, net, region: R, clock: this.clock, actors: this.actors, local: g.local, world: g.world, fx: g.fx, labels: g.labels,
+      feed: g.feed, hud: g.hud, chase: g.chase, fishing: g.fishing, reel: g.reel, bossFx, cinematic: g.cinematic, slowmo: g.slowmo,
+      boat: g.boat, monster: g.monster, runner: () => this.runner,
+    });
+
     this.runner = new ChapterRunner({
       net, save, region: R, clock: this.clock, actors: this.actors, bossFx,
       setAssist: (on) => { net.setLoadout(computeLoadout(save, on)); net.damageMult = on ? 0.8 : 1; },
       onComplete: (r) => this.onChapterComplete(r),
       openChart: () => this.openChart(),
       grantMaterial: (id, n) => this.grantMaterial(id, n, false),
-      meters: () => ({ warmth: 1, fuel: 1, dark: false }),
+      meters: () => this.hazards.meters(),
+      onStart: (d) => this.hazards.onStart(d),
+      onEvent: (ev) => this.hazards.onEvent(ev),
       ui: {
         dialogue: (lines, done, title) => g.dialogue.show(lines, done, title),
         banner: (ch, region) => { this.screens.showBanner(ch, region); g.hud.setRoom(ch ? `CH.${ch.act}-${ch.index}` : "FREE", false); },
-        complete: (r, a) => { g.fishing.cancel(); this.screens.showComplete(r, a); },
+        complete: (r, a) => {
+          g.fishing.cancel();
+          const unlocks = this.finaleUnlocks;
+          this.finaleUnlocks = null;
+          if (unlocks && r.chapter.id === FINALE_CHAPTER) playFinale({ ...this.hazards.ctx, dialogue: (l, d, t) => g.dialogue.show(l, d, t) }, unlocks, () => this.screens.showComplete(r, a));
+          else this.screens.showComplete(r, a);
+        },
         failed: (f, a) => { g.fishing.cancel(); this.tele.clear(); this.screens.showFailed(f, a); },
         toast: (html, cls) => g.feed.toast(html, cls ?? "", 3200),
         bossIntro: (def, m) => {
@@ -170,6 +189,7 @@ export class SoloMode {
     if (st.storm) { s.add("storm"); s.add("rain"); }
     if (st.wind.gust) s.add("gust");
     if (this.region.weather.aurora && this.clock.phase === "night") s.add("aurora");
+    this.hazards.weather(s);
     if (!s.size) s.add("clear");
     return s;
   }
@@ -344,6 +364,7 @@ export class SoloMode {
     const act = chaptersOfRegion(r.chapter.region).filter((c) => c.act === r.chapter.act);
     this.ach.set(`actS_${r.chapter.act}`, act.filter((c) => save.campaign.chapters[c.id]?.grade === "S").length);
     if (act.every((c) => save.campaign.chapters[c.id]?.done)) this.ach.set(`actDone_${r.chapter.act}`, 1);
+    if (r.chapter.id === FINALE_CHAPTER) { const u = applyFinaleUnlocks(save); if (r.firstClear) this.finaleUnlocks = u; this.ach.check(); }
     this.cosApplied = "";
   }
   private onAchievement(a: Achievement) {
@@ -399,6 +420,7 @@ export class SoloMode {
       loadKg: kg, capKg: L.capacityKg, loadFactor: lf, bait, baitTypes: this.baitTypes().length,
       atDock, restLabel: this.clock.restTarget.label, skillPoints: Math.max(0, skillPointsLeft(save, me?.xp ?? save.xp)),
     });
+    this.hazards.update(dt, me, paused);
   }
 
   onKey(code: string): boolean {
@@ -413,10 +435,10 @@ export class SoloMode {
     return false;
   }
 
-  hint(me: PlayerS | undefined, phase: string) { return this.runner.hint(me, phase); }
+  hint(me: PlayerS | undefined, phase: string) { return this.runner.hint(me, phase) || (this.runner.busy ? "" : this.hazards.hint(me, phase)); }
   mapExtras(): MapExtra[] {
     const lm = this.region.landmarks.filter((l) => l.kind === "wreck").map((l) => ({ x: l.x, z: l.z, icon: "⚓", color: this.clock.phase === "night" ? "#a8c0ff" : "#d9c9a8", pulse: this.clock.phase === "night" }));
-    return [...lm, ...this.actors.mapExtras()];
+    return [...lm, ...this.actors.mapExtras(), ...this.hazards.mapExtras()];
   }
   bossBar() { return this.runner.bossBar(); }
   isBoss(id: string) { return this.runner.bossId === id; }
