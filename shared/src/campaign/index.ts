@@ -25,3 +25,12 @@ import "./regions/stormbreak.js";
 import "./species/stormbreak.js";
 import "./bosses/stormKraken.js";
 import "./act3.js";
+// P3: Acts 4–5 (Frozen Fjord, Abyss Trench) + finale rewards
+import "./regions/frozenFjord.js";
+import "./regions/abyssTrench.js";
+import "./species/frozenFjord.js";
+import "./species/abyssTrench.js";
+import "./bosses/p3.js";
+import "./rewardsP3.js";
+import "./act4.js";
+import "./act5.js";

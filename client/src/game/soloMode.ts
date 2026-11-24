@@ -18,9 +18,10 @@ import { computeLoadout, loadFactor } from "../solo/loadout";
 import { campaignRoll, speciesInfo } from "../solo/species";
 import { regionClient, type RegionDecor } from "../solo/regions";
 import type { BossFx } from "../solo/bosses";
-import { HazardHost } from "../solo/hazards";
+import { HazardHost, EnvHost } from "../solo/hazards";
 import { lineGate } from "../solo/lineGates";
 import { Telegraphs } from "../fx/telegraphs";
+import { applyFinaleUnlocks, playFinale, FINALE_CHAPTER } from "../solo/finale";
 import { CampaignScreens } from "../ui/campaignScreens";
 import { SoloHud } from "../ui/soloHud";
 import { openSeaChart } from "../ui/seaChart";
@@ -57,6 +58,9 @@ export class SoloMode {
   readonly runner: ChapterRunner;
   readonly actors: Actors;
   readonly ach: AchievementTracker;
+  /** P3 environment systems (cold, floes, sky, lantern, horrors, whirlpool); P2 hazards are `hazards` */
+  readonly env: EnvHost;
+  private finaleUnlocks: string[] | null = null;
   private screens: CampaignScreens;
   private shud: SoloHud;
   private tele: Telegraphs;
@@ -140,17 +144,31 @@ export class SoloMode {
       toast: (html, cls) => g.feed.toast(html, cls ?? "", 3000),
     };
 
+    this.env = new EnvHost({
+      ui: g.ui, scene: g.scene, net, region: R, clock: this.clock, actors: this.actors, local: g.local, world: g.world, fx: g.fx, labels: g.labels,
+      feed: g.feed, hud: g.hud, chase: g.chase, fishing: g.fishing, reel: g.reel, bossFx, cinematic: g.cinematic, slowmo: g.slowmo,
+      boat: g.boat, monster: g.monster, runner: () => this.runner,
+    });
+
     this.runner = new ChapterRunner({
       net, save, region: R, clock: this.clock, actors: this.actors, bossFx,
       setAssist: (on) => { net.setLoadout(computeLoadout(save, on)); net.damageMult = on ? 0.8 : 1; },
       onComplete: (r) => this.onChapterComplete(r),
       openChart: () => this.openChart(),
       grantMaterial: (id, n) => this.grantMaterial(id, n, false),
-      meters: () => ({ warmth: 1, fuel: 1, dark: false }),
+      meters: () => this.env.meters(),
+      onStart: (d) => this.env.onStart(d),
+      onEvent: (ev) => this.env.onEvent(ev),
       ui: {
         dialogue: (lines, done, title) => g.dialogue.show(lines, done, title),
         banner: (ch, region) => { this.hazards?.reset(); bossFx.tint?.("#000", 0); this.screens.showBanner(ch, region); g.hud.setRoom(ch ? `CH.${ch.act}-${ch.index}` : "FREE", false); },
-        complete: (r, a) => { g.fishing.cancel(); this.screens.showComplete(r, a); },
+        complete: (r, a) => {
+          g.fishing.cancel();
+          const unlocks = this.finaleUnlocks;
+          this.finaleUnlocks = null;
+          if (unlocks && r.chapter.id === FINALE_CHAPTER) playFinale({ ...this.env.ctx, dialogue: (l, d, t) => g.dialogue.show(l, d, t) }, unlocks, () => this.screens.showComplete(r, a));
+          else this.screens.showComplete(r, a);
+        },
         failed: (f, a) => { g.fishing.cancel(); this.tele.clear(); this.screens.showFailed(f, a); },
         toast: (html, cls) => g.feed.toast(html, cls ?? "", 3200),
         bossIntro: (def, m) => {
@@ -194,6 +212,7 @@ export class SoloMode {
     if (st.storm) { s.add("storm"); s.add("rain"); }
     if (st.wind.gust) s.add("gust");
     if (this.region.weather.aurora && this.clock.phase === "night") s.add("aurora");
+    this.env.weather(s);
     if (!s.size) s.add("clear");
     return s;
   }
@@ -368,6 +387,7 @@ export class SoloMode {
     const act = chaptersOfRegion(r.chapter.region).filter((c) => c.act === r.chapter.act);
     this.ach.set(`actS_${r.chapter.act}`, act.filter((c) => save.campaign.chapters[c.id]?.grade === "S").length);
     if (act.every((c) => save.campaign.chapters[c.id]?.done)) this.ach.set(`actDone_${r.chapter.act}`, 1);
+    if (r.chapter.id === FINALE_CHAPTER) { const u = applyFinaleUnlocks(save); if (r.firstClear) this.finaleUnlocks = u; this.ach.check(); }
     this.cosApplied = "";
   }
   private onAchievement(a: Achievement) {
@@ -426,6 +446,7 @@ export class SoloMode {
       loadKg: kg, capKg: L.capacityKg, loadFactor: lf, bait, baitTypes: this.baitTypes().length,
       atDock, restLabel: this.clock.restTarget.label, skillPoints: Math.max(0, skillPointsLeft(save, me?.xp ?? save.xp)),
     });
+    this.env.update(dt, me, paused);
   }
 
   onKey(code: string): boolean {
@@ -440,10 +461,10 @@ export class SoloMode {
     return false;
   }
 
-  hint(me: PlayerS | undefined, phase: string) { return this.runner.hint(me, phase); }
+  hint(me: PlayerS | undefined, phase: string) { return this.runner.hint(me, phase) || (this.runner.busy ? "" : this.env.hint(me, phase)); }
   mapExtras(): MapExtra[] {
     const lm = this.region.landmarks.filter((l) => l.kind === "wreck").map((l) => ({ x: l.x, z: l.z, icon: "⚓", color: this.clock.phase === "night" ? "#a8c0ff" : "#d9c9a8", pulse: this.clock.phase === "night" }));
-    return [...lm, ...this.actors.mapExtras()];
+    return [...lm, ...this.actors.mapExtras(), ...this.env.mapExtras()];
   }
   bossBar() { return this.runner.bossBar(); }
   isBoss(id: string) { return this.runner.bossId === id; }

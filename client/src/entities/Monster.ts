@@ -54,6 +54,12 @@ export class MonsterEntity {
 
   get isBoss() { return MONSTERS[this.kind]?.boss ?? false; }
 
+  /** P3 (solo): rename + add a static model next to the (hidden) default rig, for bosses/horrors animated from outside */
+  setLook(name: string, model?: THREE.Object3D, labelY = 0) {
+    if (model) { this.model.visible = false; this.root.add(model); }
+    this.setVisual(null, name, { labelY });
+  }
+
   attack() { this.attackT = 0.001; }
 
   sync(m: MonsterS) {

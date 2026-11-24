@@ -64,10 +64,13 @@ export type ObjectiveKind =
   // P2: compound objective (every part must be done; e.g. "reach X while collecting 5 pearls")
   | { type: "all"; parts: ObjectiveKind[] }
   // P2: constraint broken when the game reports { t: "flag", flag } (boss / chapter-script rules)
-  | { type: "no_flag"; flag: string };
+  | { type: "no_flag"; flag: string }
+  // P3 constraints: never frozen by frost breath (event "frozen"), lantern fuel never at/below pct
+  | { type: "no_frozen" }
+  | { type: "fuel_above"; pct: number };
 
 export type ObjectiveType = ObjectiveKind["type"];
-export const CONSTRAINT_TYPES: ObjectiveType[] = ["no_damage", "no_snap", "no_sink", "no_lightning_hits", "under_time", "warmth_above"];
+export const CONSTRAINT_TYPES: ObjectiveType[] = ["no_damage", "no_snap", "no_sink", "no_lightning_hits", "under_time", "warmth_above", "no_frozen", "fuel_above"];
 
 export interface ObjectiveDef { id: string; title: string; kind: ObjectiveKind }
 

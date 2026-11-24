@@ -2,4 +2,6 @@
 import "./shallowsBay";
 import "./coralMaze";
 import "./stormbreak";
+import "./frozenFjord";
+import "./abyssTrench";
 export * from "./registry";

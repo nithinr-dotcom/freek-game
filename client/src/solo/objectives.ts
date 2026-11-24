@@ -12,13 +12,16 @@ export type ObjEvent =
   | { t: "npc_arrive"; npcId: string; pointId: string }
   | { t: "npc_dead"; npcId: string }
   | { t: "lightning_hit" }
-  /** a scripted rule was violated (breaks `no_flag` constraints with the same flag) */
-  | { t: "flag"; flag: string };
+  | { t: "flag"; flag: string }
+  // P3: hit by the Ice Leviathan's frost breath
+  | { t: "frozen" };
 
 export interface ObjCtx {
   elapsed: number;
   npcHpPct(id: string): number | undefined;
   warmthPct: number;
+  /** P3: lantern fuel 0..1 (1 outside the Abyss Trench) */
+  fuelPct?: number;
   storm: boolean;
   night: boolean;
   monstersAlive: number;
@@ -146,6 +149,7 @@ export class ObjectiveEngine {
         case "no_sink": if (ev.t === "sink") this.set(o, "broken"); break;
         case "no_lightning_hits": if (ev.t === "lightning_hit") this.set(o, "broken"); break;
         case "no_flag": if (ev.t === "flag" && ev.flag === k.flag) this.set(o, "broken"); break;
+        case "no_frozen": if (ev.t === "frozen") this.set(o, "broken"); break;
         case "all": o.data.sub?.event(ev, ctx); this.syncAll(o); break;
         default: break;
       }
@@ -177,6 +181,7 @@ export class ObjectiveEngine {
         }
         case "under_time": if (ctx.elapsed > k.seconds) this.set(o, "broken"); break;
         case "warmth_above": if (ctx.warmthPct < k.pct) this.set(o, "broken"); break;
+        case "fuel_above": if ((ctx.fuelPct ?? 1) <= k.pct) this.set(o, "broken"); break;
         case "all": o.data.sub?.tick(dt, ctx); this.syncAll(o); break;
         default: break;
       }
