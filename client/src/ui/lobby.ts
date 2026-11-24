@@ -16,6 +16,8 @@ import { openEndlessMenu, openDaily, openAlmanac, type EndlessStart } from "../e
 import { loadMeta } from "../endless/meta";
 import { openHarbour, harbourLabel } from "../endless/harbour";
 import { openAquarium } from "./aquarium";
+import { isIOS, isStandalone, isTouchDevice, canFullscreen, inFullscreen } from "../fullscreen";
+import { toggleFullscreen } from "./touchControls";
 import { CAPTAINS_BY_ID, todayKey } from "@freek/shared";
 
 const NAME_KEY = "tb_name";
@@ -87,7 +89,7 @@ export class Lobby {
         ),
         h("div.mode-grid.three", null, this.soloCard(), this.endlessCard(), this.mpCard),
         this.err,
-        h("div.lobby-foot", null, h("span", null, "Press H in game for controls")),
+        h("div.lobby-foot", null, h("span", null, "Press H in game for controls"), fullscreenFoot()),
       ),
     );
     root.append(this.el);
@@ -279,4 +281,15 @@ export class Lobby {
     setTimeout(() => this.el.remove(), 600);
     this.onJoined(net);
   }
+}
+
+/** lobby: a full-screen button (Android, desktop) or an "Add to Home Screen" tip (iPhone Safari) */
+function fullscreenFoot(): HTMLElement | null {
+  if (isStandalone()) return null;
+  if (isIOS() && !canFullscreen()) return h("span.fs-tip", { html: "📱 For full screen: tap <b>Share</b> <span class=\"fs-share\">⬆</span> then <b>Add to Home Screen</b>, and open the game from there." });
+  const btn = h("button.tb-btn.ghost.small.fs-btn", { onclick: () => { void toggleFullscreen().then(() => setTimeout(label, 150)); } });
+  const label = () => { btn.textContent = inFullscreen() ? "⛶ Exit full screen" : "⛶ Full screen"; };
+  label();
+  document.addEventListener("fullscreenchange", label);
+  return isTouchDevice() ? h("span.fs-wrap", null, btn, h("span.fs-tip", null, " · or install it: browser menu → Add to Home screen")) : btn;
 }

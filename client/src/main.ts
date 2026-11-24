@@ -9,6 +9,7 @@ import { installDevApi } from "./solo/dev";
 import { Lobby, type SoloAction } from "./ui/lobby";
 import { Assets } from "./world/assets";
 import { sfx } from "./audio";
+import { autoFullscreenOnFirstTap } from "./fullscreen";
 import { todayKey } from "@freek/shared";
 import type { EndlessOpts } from "./endless/EndlessMode";
 
@@ -36,6 +37,7 @@ async function boot() {
   loading.classList.add("out");
   setTimeout(() => loading.remove(), 600);
   window.addEventListener("pointerdown", () => sfx.unlock(), { once: true });
+  autoFullscreenOnFirstTap();
   window.addEventListener("keydown", () => sfx.unlock(), { once: true });
 
   const goSoloUrl = (region: RegionId, chapter?: number) => {
