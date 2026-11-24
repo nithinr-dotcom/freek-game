@@ -1,8 +1,11 @@
 import "./style.css";
-import { CHAPTERS, FREE_PLAY_CHAPTER } from "@freek/shared";
+import { getChapter, getRegion, type RegionId } from "@freek/shared";
 import { Game } from "./game/Game";
 import { SoloNet } from "./solo/SoloNet";
 import { loadSave, newSave, writeSave, clearSave, type SoloSave } from "./solo/save";
+import { regionClient } from "./solo/regions";
+import { useLayout } from "./world/layout";
+import { installDevApi } from "./solo/dev";
 import { Lobby, type SoloAction } from "./ui/lobby";
 import { Assets } from "./world/assets";
 import { sfx } from "./audio";
@@ -14,6 +17,12 @@ async function boot() {
   const params = new URLSearchParams(location.search);
   const dev = params.get("dev") === "1";
   const soloUrl = params.get("offline") === "1" || params.get("solo") === "1";
+
+  // solo regions are separate maps: pick the layout before the world is built
+  const urlRegion = params.get("region") as RegionId | null;
+  const soloRegion: RegionId = (soloUrl && urlRegion && getRegion(urlRegion) ? urlRegion : loadSave()?.campaign.region) ?? "shallows_bay";
+  const loadedRegion: RegionId = soloUrl ? soloRegion : "shallows_bay";
+  if (soloUrl) { const lay = regionClient(loadedRegion)?.layout; if (lay) useLayout(lay()); }
 
   const loading = document.createElement("div");
   loading.className = "loading";
@@ -27,35 +36,31 @@ async function boot() {
   window.addEventListener("pointerdown", () => sfx.unlock(), { once: true });
   window.addEventListener("keydown", () => sfx.unlock(), { once: true });
 
-  const startSolo = (save: SoloSave, replayChapter?: number) => {
-    game.attach(new SoloNet(save), { replayChapter });
+  const goSoloUrl = (region: RegionId, chapter?: number) => {
+    location.href = `${location.pathname}?solo=1&region=${region}${chapter ? `&chapter=${chapter}` : ""}${dev ? "&dev=1" : ""}`;
   };
-  const fromChapterChoice = (id: number) => {
-    const save = loadSave() ?? newSave(localStorage.getItem("tb_name") || "Captain");
-    if (dev && id !== save.chapter) {
-      // dev chapter jump: become "at" chapter N with earlier rewards granted
-      save.chapter = Math.max(1, Math.min(FREE_PLAY_CHAPTER, id));
-      save.unlocks.harpoonUpgrade = save.chapter > 3;
-      save.unlocks.legendaryRod = save.chapter > 5;
-      save.unlocks.reef = save.chapter >= 2;
-      save.unlocks.abyss = save.chapter >= 4;
-      save.finished = save.chapter > CHAPTERS.length;
-      save.current = { progress: [], elapsed: 0, sank: false, introSeen: false };
-      writeSave(save);
-      startSolo(save);
-    } else if (id < save.chapter && id <= CHAPTERS.length) startSolo(save, id);
-    else startSolo(save);
+  const startSolo = (save: SoloSave, chapter?: number) => {
+    // a different region needs a fresh world
+    if (save.campaign.region !== loadedRegion && regionClient(save.campaign.region)?.layout) { writeSave(save); goSoloUrl(save.campaign.region, chapter); return; }
+    game.attach(new SoloNet(save), { chapter });
+    if (dev) installDevApi(game);
   };
+  const saveOrNew = () => loadSave() ?? newSave(localStorage.getItem("tb_name") || "Captain");
 
   if (soloUrl) {
-    const ch = Number(params.get("chapter"));
-    if (ch) fromChapterChoice(ch);
-    else startSolo(loadSave() ?? newSave(localStorage.getItem("tb_name") || "Captain"));
+    const save = saveOrNew();
+    save.campaign.region = loadedRegion;
+    const ch = Number(params.get("chapter")) || undefined;
+    startSolo(save, ch && getChapter(ch)?.region === loadedRegion ? ch : undefined);
   } else {
     new Lobby(ui, (net) => game.attach(net), (a: SoloAction) => {
-      if (a.type === "continue") startSolo(loadSave() ?? newSave(a.type === "continue" ? localStorage.getItem("tb_name") || "Captain" : "Captain"));
+      if (a.type === "continue") startSolo(saveOrNew());
       else if (a.type === "new") { clearSave(); const s = newSave(a.name); writeSave(s); startSolo(s); }
-      else fromChapterChoice(a.id);
+      else if (a.type === "chapter") {
+        const s = saveOrNew(), c = getChapter(a.id);
+        if (c) s.campaign.region = c.region;
+        startSolo(s, a.id);
+      } else if (a.type === "region") { const s = saveOrNew(); s.campaign.region = a.region; s.campaign.current = null; startSolo(s, -1); }
     });
   }
   (window as any).__game = game;

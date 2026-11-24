@@ -16,9 +16,9 @@ export class MissionTracker {
     root.append(this.el);
   }
 
-  update(personal: MissionS[], squad: MissionS[], squadColor: string, campaign?: { label: string; items: MissionS[] }) {
+  update(personal: MissionS[], squad: MissionS[], squadColor: string, campaign?: { label: string; items: (MissionS & { optional?: boolean; state?: string; numText?: string })[] }) {
     const all = [...(campaign?.items ?? []).map((m) => ({ m, sq: false, cmp: true })), ...personal.map((m) => ({ m, sq: false, cmp: false })), ...squad.map((m) => ({ m, sq: true, cmp: false }))];
-    const sig = all.map(({ m }) => `${m.id}:${m.progress}/${m.target}`).join("|") + squadColor + (campaign?.label ?? "");
+    const sig = all.map(({ m }) => `${m.id}:${m.progress}/${m.target}:${(m as any).state ?? ""}:${(m as any).numText ?? ""}`).join("|") + squadColor + (campaign?.label ?? "");
     if (sig === this.sig) return;
     this.sig = sig;
     this.list.innerHTML = "";
@@ -31,10 +31,13 @@ export class MissionTracker {
       const prev = this.prevProgress.get(key);
       const bumped = prev !== undefined && m.progress > prev;
       this.prevProgress.set(key, m.progress);
+      const ext = m as MissionS & { optional?: boolean; state?: string; numText?: string };
+      const tag = cmp ? (ext.optional === undefined ? '<span class="mt-cmp">CAMPAIGN</span>' : ext.optional ? '<span class="mt-cmp opt">★ BONUS</span>' : '<span class="mt-cmp">MAIN</span>') : "";
       const row = h("div.mt-row", { style: sq ? `--sq:${squadColor}` : "" },
-        h("div.mt-title", { html: `${cmp ? '<span class="mt-cmp">CAMPAIGN</span>' : ""}${sq ? '<span class="mt-sq">SQUAD</span>' : ""}${escapeHtml(m.title.replace(/^SQUAD:\s*/, ""))}` }),
-        h("div.mt-bar", null, h("div.mt-fill", { style: `width:${(k * 100).toFixed(1)}%` }), h("div.mt-num", null, `${Math.min(m.progress, m.target)}/${m.target}`)),
+        h("div.mt-title", { html: `${tag}${sq ? '<span class="mt-sq">SQUAD</span>' : ""}${escapeHtml(m.title.replace(/^SQUAD:\s*/, ""))}` }),
+        h("div.mt-bar", null, h("div.mt-fill", { style: `width:${(k * 100).toFixed(1)}%` }), h("div.mt-num", null, ext.numText ?? `${Math.min(m.progress, m.target)}/${m.target}`)),
       );
+      if (ext.state === "broken") row.classList.add("broken");
       if (sq) row.classList.add("squad");
       if (cmp) { row.classList.add("campaign"); if (m.progress >= m.target) row.classList.add("done"); }
       if (bumped) row.classList.add("bump");

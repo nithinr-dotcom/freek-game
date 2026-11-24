@@ -21,6 +21,8 @@ export interface TouchHooks {
   settings(): void;
   phase(): string;
   cooldownLeft(): number;
+  /** solo: harpoon cooldown from gear */
+  cooldownTotal?(): number;
 }
 
 const R = 62; // joystick radius px
@@ -182,7 +184,7 @@ export class TouchControls {
       this.castBtn.dataset.phase = ph;
       this.cancelBtn.classList.toggle("show", ph !== "idle" && ph !== "charging");
     }
-    const k = Math.max(0, Math.min(1, this.hooks.cooldownLeft() / HARPOON_COOLDOWN_MS));
+    const k = Math.max(0, Math.min(1, this.hooks.cooldownLeft() / (this.hooks.cooldownTotal?.() ?? HARPOON_COOLDOWN_MS)));
     const circ = 2 * Math.PI * 29;
     this.harpRing.style.strokeDasharray = `${circ}`;
     this.harpRing.style.strokeDashoffset = `${circ * k}`;

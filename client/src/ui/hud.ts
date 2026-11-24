@@ -35,6 +35,10 @@ export class Hud {
   onBoard: (() => void) | null = null;
   onMute: (() => boolean) | null = null;
   onSettings: (() => void) | null = null;
+  /** solo: hull HP and harpoon cooldown come from gear (multiplayer keeps the constants) */
+  maxHp = BOAT_MAX_HP;
+  cooldownMs = HARPOON_COOLDOWN_MS;
+  private bossPips: HTMLElement;
 
   constructor(root: HTMLElement) {
     this.hpFill = h("div.bar-fill.hp"); this.hpLag = h("div.bar-lag"); this.hpText = h("div.bar-text");
@@ -74,7 +78,8 @@ export class Hud {
     this.statusLine = h("div.status-line");
     this.hint = h("div.tutorial-hint");
     this.bossFill = h("div.boss-fill"); this.bossName = h("div.boss-name"); this.bossHp = h("div.boss-hp");
-    this.boss = h("div.boss-bar", null, this.bossName, h("div.boss-track", null, this.bossFill, this.bossHp));
+    this.bossPips = h("div.boss-pips");
+    this.boss = h("div.boss-bar", null, this.bossName, h("div.boss-track", null, this.bossFill, this.bossPips, this.bossHp));
     this.codeLbl = h("span.code-lbl", null, "ROOM");
 
     const muteBtn = h("button.icon-btn", { title: "Mute (M)", onclick: () => { const m = this.onMute?.(); muteBtn.textContent = m ? "🔇" : "🔊"; } }, localStorage.getItem("tb_muted") === "1" ? "🔇" : "🔊");
@@ -130,12 +135,13 @@ export class Hud {
       }
       // hp
       const hp = Math.max(0, me.hp);
-      const k = hp / BOAT_MAX_HP;
+      const MAX = this.maxHp;
+      const k = hp / MAX;
       this.hpFill.style.width = `${k * 100}%`;
       this.hpFill.classList.toggle("low", k < 0.3);
       this.hpLagValue = Math.max(hp, this.hpLagValue - dt * 30);
-      this.hpLag.style.width = `${(this.hpLagValue / BOAT_MAX_HP) * 100}%`;
-      setText(this.hpText, `${Math.ceil(hp)} / ${BOAT_MAX_HP}`);
+      this.hpLag.style.width = `${(this.hpLagValue / MAX) * 100}%`;
+      setText(this.hpText, `${Math.ceil(hp)} / ${MAX}`);
       if (this.lastHp >= 0 && hp < this.lastHp) { this.hpFill.parentElement!.classList.remove("hit"); void this.hpFill.offsetWidth; this.hpFill.parentElement!.classList.add("hit"); }
       if (hp > this.lastHp) this.hpLagValue = hp;
       this.lastHp = hp;
@@ -170,9 +176,9 @@ export class Hud {
     this.storm.classList.toggle("active", storm.on);
     const secs = Math.max(0, Math.round(storm.on ? storm.secondsLeft : storm.nextIn));
     const mmss = `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, "0")}`;
-    setText(this.stormText, storm.on ? `STORM · ${mmss}` : storm.nextIn > 0 ? `Storm in ${mmss}` : "Calm seas");
+    setText(this.stormText, storm.on ? `STORM · ${mmss}` : storm.nextIn > 0 && storm.nextIn < 86400 ? `Storm in ${mmss}` : "Calm seas");
     // harpoon cooldown
-    const cdk = Math.max(0, Math.min(1, cooldownLeft / HARPOON_COOLDOWN_MS));
+    const cdk = Math.max(0, Math.min(1, cooldownLeft / this.cooldownMs));
     const circ = 2 * Math.PI * 19;
     this.cdRing.style.strokeDasharray = `${circ}`;
     this.cdRing.style.strokeDashoffset = `${circ * cdk}`;
@@ -218,9 +224,19 @@ export class Hud {
     this.hint.innerHTML = text ? `<span class="th-icon">💡</span>${text}` : "";
     this.hint.classList.toggle("show", !!text);
   }
-  setBoss(b: { name: string; hp: number; maxHp: number } | null) {
+  get bagEl() { return this.bag; }
+  /** solo: the room-code panel is replaced by the clock/timer strip */
+  setSoloStrip(on: boolean) { this.codeEl.parentElement!.classList.toggle("hidden", on); }
+  private pipSig = "";
+  setBoss(b: { name: string; hp: number; maxHp: number; pips?: number[]; phase?: number } | null) {
     this.boss.classList.toggle("show", !!b);
     if (!b) return;
+    const sig = `${(b.pips ?? []).join(",")}|${b.phase ?? 0}`;
+    if (sig !== this.pipSig) {
+      this.pipSig = sig;
+      this.bossPips.innerHTML = (b.pips ?? []).map((p, i) => `<i class="${(b.phase ?? 0) > i ? "passed" : ""}" style="left:${p * 100}%"></i>`).join("");
+      this.boss.classList.remove("phase-pop"); void this.boss.offsetWidth; if ((b.phase ?? 0) > 0) this.boss.classList.add("phase-pop");
+    }
     setText(this.bossName, `☠ ${b.name}`);
     this.bossFill.style.width = `${Math.max(0, Math.min(1, b.hp / b.maxHp)) * 100}%`;
     setText(this.bossHp, `${Math.ceil(b.hp)} / ${b.maxHp}`);

@@ -11,11 +11,20 @@ export class PauseMenu {
   onChapters: (() => void) | null = null;
   onQuit: (() => void) | null = null;
   onSettings: ((s: Settings) => void) | null = null;
+  onChart: (() => void) | null = null;
+  onCodex: (() => void) | null = null;
+  onWorkshop: (() => void) | null = null;
+  onRestart: (() => void) | null = null;
 
   constructor(root: HTMLElement) {
     this.main = h("div.pause-main", null,
       h("button.tb-btn.primary.big", { onclick: () => this.onResume?.() }, "▶ Resume"),
-      h("button.tb-btn", { onclick: () => this.onChapters?.() }, "Chapter select"),
+      h("button.tb-btn", { onclick: () => this.onChart?.() }, "🗺 Sea Chart"),
+      h("div.pause-row", null,
+        h("button.tb-btn", { onclick: () => this.onCodex?.() }, "📖 Codex"),
+        h("button.tb-btn", { onclick: () => this.onWorkshop?.() }, "🔨 Workshop"),
+      ),
+      h("button.tb-btn.ghost", { onclick: () => this.onRestart?.() }, "↻ Restart chapter"),
       h("button.tb-btn", { onclick: () => this.showSettings(true) }, "Settings"),
       h("button.tb-btn.ghost", { onclick: () => this.onQuit?.() }, "Quit to lobby"),
     );

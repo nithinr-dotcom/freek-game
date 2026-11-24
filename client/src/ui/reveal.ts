@@ -1,6 +1,7 @@
 /** Catch reveal card: flips in with a rotating 3D fish, tier badge, weight/points, NEW BEST ribbon, XP float, confetti for Legendary. */
-import { SPECIES_BY_ID, TIER_INFO, ZONES, type FishCardS, type Tier, type ZoneId } from "@freek/shared";
+import { TIER_INFO, ZONES, type FishCardS, type Tier, type ZoneId } from "@freek/shared";
 import { FishPreview } from "./fishPreview";
+import { speciesInfo } from "../solo/species";
 import { h, escapeHtml, fmtKg } from "../util";
 
 export class Reveal {
@@ -32,7 +33,7 @@ export class Reveal {
 
   private display(card: FishCardS, opts: { newBest?: boolean; xp?: number; perfect?: boolean; zone?: ZoneId; title?: string }) {
     this.showing = true;
-    const sp = SPECIES_BY_ID[card.speciesId];
+    const sp = speciesInfo(card.speciesId);
     const tier: Tier = card.tier;
     const ti = TIER_INFO[tier];
     if (!this.preview) {

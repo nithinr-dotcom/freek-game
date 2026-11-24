@@ -3,15 +3,19 @@ import { listRooms, createRoom, joinByCode, type RoomListing } from "../net";
 import type { GameNet } from "../game/types";
 import { h, escapeHtml } from "../util";
 import { sfx } from "../audio";
-import { CHAPTERS, levelFromXp } from "@freek/shared";
-import { loadSave } from "../solo/save";
+import { levelFromXp, allChapters, getRegion, TITLES_BY_ID, type RegionId } from "@freek/shared";
+import { loadSave, writeSave, type SoloSave } from "../solo/save";
+import { ChapterRunner } from "../solo/chapterRunner";
 import { confirmModal } from "./modal";
-import { chapterSelect } from "./chapterScreens";
+import { openSeaChart } from "./seaChart";
+import { openWorkshop } from "./workshop";
+import { openCodex } from "./codex";
+import { totalCompletion } from "../solo/codex";
 import { MARLOW_SVG } from "./dialogue";
 
 const NAME_KEY = "tb_name";
 
-export type SoloAction = { type: "continue" } | { type: "new"; name: string } | { type: "chapter"; id: number };
+export type SoloAction = { type: "continue" } | { type: "new"; name: string } | { type: "chapter"; id: number } | { type: "region"; region: RegionId };
 
 export class Lobby {
   readonly el: HTMLElement;
@@ -89,27 +93,40 @@ export class Lobby {
 
   private soloCard(): HTMLElement {
     const save = loadSave();
-    const total = save ? Object.values(save.stars).reduce((a, b) => a + b, 0) : 0;
-    const ch = save ? CHAPTERS.find((c) => c.id === save.chapter) : undefined;
-    const progress = save
-      ? `<div class="solo-progress"><div class="sp-chapter">${ch ? `Chapter ${ch.id}: ${escapeHtml(ch.title)}` : "Campaign complete · Free Play"}</div>
-         <div class="sp-meta"><span>Lv ${levelFromXp(save.xp).level}</span><span>★ ${total}/${CHAPTERS.length * 3}</span><span>${escapeHtml(save.name)}</span></div>
-         <div class="sp-bar"><i style="width:${Math.min(100, ((save.chapter - 1) / CHAPTERS.length) * 100)}%"></i></div></div>`
-      : `<div class="solo-progress fresh">Old Marlow, the lighthouse keeper, needs a new sailor. Six chapters, one legend.</div>`;
-    const buttons: HTMLElement[] = [];
-    if (save) {
-      buttons.push(h("button.tb-btn.primary.big", { onclick: () => { sfx.unlock(); this.soloGo({ type: "continue" }); } }, "▶ Continue"));
-      buttons.push(h("button.tb-btn", { onclick: () => this.newGame(true) }, "New Game"));
-      buttons.push(h("button.tb-btn.ghost", { onclick: () => chapterSelect(this.root, save, (id) => this.soloGo({ type: "chapter", id })) }, "Chapters"));
-    } else {
-      buttons.push(h("button.tb-btn.primary.big", { onclick: () => this.newGame(false) }, "▶ New Game"));
-    }
-    return h("div.mode-card.solo-card", null,
-      h("div.mode-head", null, h("span.mode-portrait", { html: MARLOW_SVG }), h("div", null, h("div.mode-kicker", null, "SINGLE PLAYER"), h("div.mode-title", null, "Campaign"))),
-      h("div", { html: progress }),
-      h("div.solo-buttons", null, ...buttons),
-      h("p.hint", null, "No server needed · progress saves in this browser"),
-    );
+    const card = h("div.mode-card.solo-card");
+    const render = (save: SoloSave | null) => {
+      card.innerHTML = "";
+      const chapters = allChapters();
+      const total = save ? Object.values(save.campaign.chapters).reduce((a, c) => a + (c.stars ?? 0), 0) : 0;
+      const done = save ? chapters.filter((c) => save.campaign.chapters[c.id]?.done).length : 0;
+      const next = save ? ChapterRunner.nextChapter(save) : null;
+      const progress = save
+        ? `<div class="solo-progress"><div class="sp-chapter">${next ? `Act ${next.act} · ${escapeHtml(getRegion(next.region)?.name ?? "")} · Ch.${next.index}: ${escapeHtml(next.title.replace(/^BOSS:\s*/, "BOSS · "))}` : "All charted chapters complete · Free Roam"}</div>
+           <div class="sp-meta"><span>Lv ${levelFromXp(save.xp).level}</span><span>★ ${total}/${chapters.length * 3}</span><span>📖 ${totalCompletion(save).pct}%</span><span>${escapeHtml(save.name)}${save.title ? ` · ${escapeHtml(TITLES_BY_ID[save.title]?.name ?? "")}` : ""}</span></div>
+           <div class="sp-bar"><i style="width:${Math.min(100, (done / Math.max(1, chapters.length)) * 100)}%"></i></div></div>`
+        : `<div class="solo-progress fresh">Old Marlow, the lighthouse keeper, needs a new sailor. Five seas, five monsters, one legend.</div>`;
+      const buttons: HTMLElement[] = [];
+      if (save) {
+        buttons.push(h("button.tb-btn.primary.big", { onclick: () => { sfx.unlock(); this.soloGo({ type: "continue" }); } }, "▶ Continue"));
+        buttons.push(h("button.tb-btn", { onclick: () => this.newGame(true) }, "New Game"));
+      } else {
+        buttons.push(h("button.tb-btn.primary.big", { onclick: () => this.newGame(false) }, "▶ New Game"));
+      }
+      const extras = save ? h("div.solo-extras", null,
+        h("button.tb-btn.ghost.small", { onclick: () => openSeaChart(this.root, { save, onPlay: (id) => this.soloGo({ type: "chapter", id }), onFreeRoam: (region) => this.soloGo({ type: "region", region }) }) }, "🗺 Sea Chart"),
+        h("button.tb-btn.ghost.small", { onclick: () => openCodex(this.root, save) }, "📖 Codex"),
+        h("button.tb-btn.ghost.small", { onclick: () => openWorkshop(this.root, { save, coins: () => save.coins, spend: (n) => { save.coins -= n; }, xp: () => save.xp, atDock: true, onChanged: () => { writeSave(save); } }) }, "🔨 Workshop"),
+      ) : null;
+      card.append(
+        h("div.mode-head", null, h("span.mode-portrait", { html: MARLOW_SVG }), h("div", null, h("div.mode-kicker", null, "SINGLE PLAYER"), h("div.mode-title", null, "Campaign"))),
+        h("div", { html: progress }),
+        h("div.solo-buttons", null, ...buttons),
+        extras ?? "",
+        h("p.hint", null, save?.flags.migratedFromV1 ? "Your old save was carried over · progress saves in this browser" : "No server needed · progress saves in this browser"),
+      );
+    };
+    render(save);
+    return card;
   }
 
   private async newGame(hasSave: boolean) {

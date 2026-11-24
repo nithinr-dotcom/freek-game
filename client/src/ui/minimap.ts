@@ -50,7 +50,7 @@ export class Minimap {
     c.restore();
   }
 
-  update(dt: number, players: PlayerS[], meId: string, monsters: MonsterS[], me: { x: number; z: number; rot: number } | null, lockedR?: number) {
+  update(dt: number, players: PlayerS[], meId: string, monsters: MonsterS[], me: { x: number; z: number; rot: number } | null, lockedR?: number, extras?: { x: number; z: number; icon: string; color: string; pulse?: boolean }[]) {
     this.t += dt;
     const c = this.ctx, s = this.size, r = s / 2;
     c.clearRect(0, 0, s, s);
@@ -80,6 +80,13 @@ export class Minimap {
     c.strokeStyle = "#ffd76a"; c.lineWidth = 2;
     c.beginPath(); c.arc(tx(DOCK_POS.x), tz(DOCK_POS.z), Math.max(3, DOCK_RADIUS * k), 0, Math.PI * 2); c.stroke();
     c.fillStyle = "#ffd76a"; c.font = "bold 9px system-ui"; c.textAlign = "center"; c.fillText("⚓", tx(DOCK_POS.x), tz(DOCK_POS.z) + 3);
+    // solo: landmarks, markers, pickups, NPC boats
+    for (const e of extras ?? []) {
+      const pr = e.pulse ? 1 + Math.sin(this.t * 5) * 0.25 : 1;
+      if (e.pulse) { c.fillStyle = e.color + "55"; c.beginPath(); c.arc(tx(e.x), tz(e.z), 6 * pr, 0, Math.PI * 2); c.fill(); }
+      c.fillStyle = e.color; c.font = `${e.icon === "•" ? 16 : 10}px system-ui`; c.textAlign = "center";
+      c.fillText(e.icon, tx(e.x), tz(e.z) + (e.icon === "•" ? 5 : 4));
+    }
     // monsters
     for (const m of monsters) {
       if (m.state === "submerged") continue;

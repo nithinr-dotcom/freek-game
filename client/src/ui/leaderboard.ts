@@ -1,5 +1,6 @@
 /** Leaderboard panel (Tab): squad leaderboard, trophy wall, hall of fame. */
-import { SQUADS, SQUAD_IDS, SPECIES_BY_ID, TIER_INFO, CHAPTERS, ZONES, type PlayerS, type SquadS, type FishCardS, type SquadId } from "@freek/shared";
+import { SQUADS, SQUAD_IDS, TIER_INFO, MATERIALS, allChapters, getRegion, type PlayerS, type SquadS, type FishCardS, type SquadId, type MaterialId } from "@freek/shared";
+import { speciesInfo } from "../solo/species";
 import { h, escapeHtml, fmtKg, arr } from "../util";
 import { fishSvg } from "./hud";
 import type { SoloSave } from "../solo/save";
@@ -8,7 +9,7 @@ type Tab = "squads" | "trophies" | "hof" | "campaign";
 
 export function fishChip(c: FishCardS | undefined): string {
   if (!c) return `<span class="fish-chip none">no catch yet</span>`;
-  const sp = SPECIES_BY_ID[c.speciesId];
+  const sp = speciesInfo(c.speciesId);
   return `<span class="fish-chip tier-${c.tier}" style="--tier:${TIER_INFO[c.tier].color}">${escapeHtml(sp?.name ?? c.speciesId)} · ${fmtKg(c.weightKg)}</span>`;
 }
 
@@ -129,26 +130,28 @@ export class Leaderboard {
   }
 
   private renderCampaign(save: SoloSave, label: string, me?: PlayerS): string {
-    const total = Object.values(save.stars).reduce((a, b) => a + b, 0);
+    const chapters = allChapters();
+    const total = chapters.reduce((a, c) => a + (save.campaign.chapters[c.id]?.stars ?? 0), 0);
     const fmt = (s?: number) => (s === undefined || !isFinite(s) ? "-" : `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`);
-    const rows = CHAPTERS.map((c) => {
-      const st = save.stars[c.id] ?? 0;
-      const status = c.id < save.chapter ? "done" : c.id === save.chapter ? "current" : "locked";
-      return `<div class="cp-row ${status}"><span class="rank">${c.id}</span><span class="cp-title">${escapeHtml(c.title)}<small>${ZONES[c.zone].name}</small></span>
+    const next = chapters.find((c) => !save.campaign.chapters[c.id]?.done);
+    const rows = chapters.map((c) => {
+      const rec = save.campaign.chapters[c.id];
+      const st = rec?.stars ?? 0;
+      const status = rec?.done ? "done" : c === next ? "current" : "locked";
+      return `<div class="cp-row ${status}"><span class="rank">${c.act}-${c.index}</span><span class="cp-title">${escapeHtml(c.title)}<small>${escapeHtml(getRegion(c.region)?.name ?? "")}${rec?.grade ? ` · grade ${rec.grade}` : ""}</small></span>
         <span class="stars">${[1, 2, 3].map((i) => `<i class="${i <= st ? "on" : ""}">★</i>`).join("")}</span>
-        <span class="cp-time">${status === "done" ? fmt(save.bestTimes[c.id]) : status === "current" ? "in progress" : "🔒"}</span></div>`;
+        <span class="cp-time">${status === "done" ? fmt(rec?.bestTime) : status === "current" ? "next" : "🔒"}</span></div>`;
     }).join("");
-    return `<div class="cp-head"><div><b>${escapeHtml(label)}</b><br/><small>${total} / ${CHAPTERS.length * 3} stars</small></div>
+    return `<div class="cp-head"><div><b>${escapeHtml(label)}</b><br/><small>${total} / ${chapters.length * 3} stars</small></div>
       <div class="cp-stats"><span>Lv ${me?.level ?? save.level}</span><span>${me?.catches ?? save.catches} fish</span><span>${me?.bankedPoints ?? save.bankedPoints} banked</span><span>● ${me?.coins ?? save.coins}</span></div></div>
       <div class="cp-list">${rows}</div>
-      <div class="cp-unlocks">${[["Reef", save.unlocks.reef], ["Abyss", save.unlocks.abyss], ["Harpoon +10", save.unlocks.harpoonUpgrade], ["Legendary rod", save.unlocks.legendaryRod]]
-        .map(([n, on]) => `<span class="${on ? "on" : ""}">${on ? "🔓" : "🔒"} ${n}</span>`).join("")}</div>`;
+      <div class="cp-unlocks">${Object.entries(save.materials).filter(([, n]) => (n ?? 0) > 0).map(([id, n]) => `<span class="on">${MATERIALS[id as MaterialId].icon} ${n} ${escapeHtml(MATERIALS[id as MaterialId].name)}</span>`).join("") || "<span>No materials yet</span>"}</div>`;
   }
 
   private renderHof(): string {
     if (!this.hof.length) return `<div class="room-empty">The Hall of Fame awaits its first legend.</div>`;
     return `<div class="hof">${this.hof.map((c, i) => {
-      const sp = SPECIES_BY_ID[c.speciesId];
+      const sp = speciesInfo(c.speciesId);
       return `<div class="hof-row tier-${c.tier}" style="--tier:${TIER_INFO[c.tier].color}">
         <span class="rank">${i + 1}</span><span class="hof-fish">${fishSvg(sp?.tint ?? "#ccc")}</span>
         <span class="hof-name">${escapeHtml(sp?.name ?? c.speciesId)}<small>${TIER_INFO[c.tier].label}</small></span>
@@ -158,7 +161,7 @@ export class Leaderboard {
 }
 
 export function trophyCard(c: FishCardS): string {
-  const sp = SPECIES_BY_ID[c.speciesId];
+  const sp = speciesInfo(c.speciesId);
   const ti = TIER_INFO[c.tier];
   return `<div class="trophy tier-${c.tier}" style="--tier:${ti.color}">
     <div class="tr-tier">${ti.label}</div>
