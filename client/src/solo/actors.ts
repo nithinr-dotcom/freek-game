@@ -3,7 +3,7 @@
  * Logic and visuals live together; the chapter runner reads the events they return each frame.
  */
 import * as THREE from "three";
-import type { CampaignChapter, RegionDef } from "@freek/shared";
+import type { CampaignChapter, ObjectiveKind, RegionDef } from "@freek/shared";
 import { Boat } from "../entities/Boat";
 import type { Labels, Label } from "../ui/labels";
 import type { Effects } from "../fx/effects";
@@ -156,9 +156,10 @@ export class Actors {
   build(ch: CampaignChapter, region: RegionDef) {
     this.clear();
     const pt = (id: string) => region.points[id];
-    const objs = [ch.main, ...ch.optional];
-    for (const o of objs) {
-      const k = o.kind;
+    // P3: compound "all" objectives contribute their parts' markers too
+    const flat = (k: ObjectiveKind): ObjectiveKind[] => (k.type === "all" ? k.parts.flatMap(flat) : [k]);
+    const kinds = [ch.main, ...ch.optional].flatMap((o) => flat(o.kind));
+    for (const k of kinds) {
       if (k.type === "reach" && pt(k.pointId)) this.markers.push(new Marker(this.env, k.pointId, pt(k.pointId).x, pt(k.pointId).z, pt(k.pointId).label));
       if (k.type === "escort" && pt(k.toPointId)) { this.escorts.set(k.npcId, k.toPointId); this.markers.push(new Marker(this.env, k.toPointId, pt(k.toPointId).x, pt(k.toPointId).z, pt(k.toPointId).label, "#7dff9a")); }
     }

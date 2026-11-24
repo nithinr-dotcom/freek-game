@@ -60,10 +60,15 @@ export type ObjectiveKind =
   | { type: "no_sink" }
   | { type: "no_lightning_hits" }
   | { type: "under_time"; seconds: number }
-  | { type: "warmth_above"; pct: number };
+  | { type: "warmth_above"; pct: number }
+  // P3: compound main objective ("reach X while collecting N", "survive while catching"): done when every part is done
+  | { type: "all"; parts: ObjectiveKind[] }
+  // P3 constraints: never frozen by frost breath (event "frozen"), lantern fuel never at/below pct
+  | { type: "no_frozen" }
+  | { type: "fuel_above"; pct: number };
 
 export type ObjectiveType = ObjectiveKind["type"];
-export const CONSTRAINT_TYPES: ObjectiveType[] = ["no_damage", "no_snap", "no_sink", "no_lightning_hits", "under_time", "warmth_above"];
+export const CONSTRAINT_TYPES: ObjectiveType[] = ["no_damage", "no_snap", "no_sink", "no_lightning_hits", "under_time", "warmth_above", "no_frozen", "fuel_above"];
 
 export interface ObjectiveDef { id: string; title: string; kind: ObjectiveKind }
 

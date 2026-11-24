@@ -11,12 +11,16 @@ export type ObjEvent =
   | { t: "collect"; kind: string }
   | { t: "npc_arrive"; npcId: string; pointId: string }
   | { t: "npc_dead"; npcId: string }
-  | { t: "lightning_hit" };
+  | { t: "lightning_hit" }
+  // P3: hit by the Ice Leviathan's frost breath
+  | { t: "frozen" };
 
 export interface ObjCtx {
   elapsed: number;
   npcHpPct(id: string): number | undefined;
   warmthPct: number;
+  /** P3: lantern fuel 0..1 (1 outside the Abyss Trench) */
+  fuelPct?: number;
   storm: boolean;
   night: boolean;
   monstersAlive: number;
@@ -32,7 +36,7 @@ export interface ObjRuntime {
   target: number;
   state: ObjState;
   /** per-type scratch data */
-  data: { seen?: string[]; streak?: number; pending?: { clean: boolean }[] };
+  data: { seen?: string[]; streak?: number; pending?: { clean: boolean }[]; parts?: ObjectiveEngine };
 }
 
 export function isConstraint(k: ObjectiveKind) { return CONSTRAINT_TYPES.includes(k.type); }
@@ -43,6 +47,7 @@ export function targetOf(k: ObjectiveKind): number {
     case "harpoon_hits": case "kill": case "collect": case "bank_points_trip": case "bank_fish": return k.n;
     case "bank_any": return k.n ?? 1;
     case "defend": case "survive": return k.seconds;
+    case "all": return k.parts.length;
     default: return 1;
   }
 }
@@ -56,6 +61,20 @@ export class ObjectiveEngine {
 
   constructor(main: ObjectiveDef, optional: ObjectiveDef[]) {
     this.items = [main, ...optional].map((def, i) => ({ def, optional: i > 0, progress: 0, target: targetOf(def.kind), state: "active", data: {} }));
+    // P3 "all": the parts run in a child engine; the parent is done when every part is done, broken when one breaks
+    for (const o of this.items) {
+      const k = o.def.kind;
+      if (k.type !== "all") continue;
+      const defs = k.parts.map((p, j) => ({ id: `${o.def.id}_${j}`, title: o.def.title, kind: p }));
+      o.data.parts = new ObjectiveEngine(defs[0], defs.slice(1));
+    }
+  }
+  private syncAll(o: ObjRuntime) {
+    const c = o.data.parts;
+    if (!c || o.state !== "active") return;
+    if (c.items.some((p) => p.state === "broken")) { this.set(o, "broken"); return; }
+    o.progress = c.items.filter((p) => p.state === "done").length;
+    if (o.progress >= o.target) this.set(o, "done");
   }
   get main() { return this.items[0]; }
   get mainDone() { return this.main.state === "done"; }
@@ -124,6 +143,8 @@ export class ObjectiveEngine {
         case "no_snap": if (ev.t === "snap") this.set(o, "broken"); break;
         case "no_sink": if (ev.t === "sink") this.set(o, "broken"); break;
         case "no_lightning_hits": if (ev.t === "lightning_hit") this.set(o, "broken"); break;
+        case "no_frozen": if (ev.t === "frozen") this.set(o, "broken"); break;
+        case "all": o.data.parts?.event(ev, ctx); this.syncAll(o); break;
         default: break;
       }
     }
@@ -154,6 +175,8 @@ export class ObjectiveEngine {
         }
         case "under_time": if (ctx.elapsed > k.seconds) this.set(o, "broken"); break;
         case "warmth_above": if (ctx.warmthPct < k.pct) this.set(o, "broken"); break;
+        case "fuel_above": if ((ctx.fuelPct ?? 1) <= k.pct) this.set(o, "broken"); break;
+        case "all": o.data.parts?.tick(dt, ctx); this.syncAll(o); break;
         default: break;
       }
     }
@@ -173,6 +196,7 @@ export class ObjectiveEngine {
     if (o.state === "done") return "✔";
     if (k.type === "defend" || k.type === "survive") return `${fmtT(o.progress)} / ${fmtT(o.target)}`;
     if (k.type === "bank_fish") return `${o.progress}/${o.target}${ctx.unbankedFish ? ` · ${ctx.unbankedFish} in bag` : ""}`;
+    if (k.type === "all" && o.data.parts) { const c = o.data.parts; return c.items.map((p) => (p.state === "done" ? "✔" : c.numText(p, ctx))).join(" · "); }
     if (k.type === "escort") { const hp = ctx.npcHpPct(k.npcId); return hp === undefined ? "" : `${Math.round(hp * 100)}% hp`; }
     if (o.target <= 1) return "0/1";
     return `${Math.floor(o.progress)}/${o.target}`;
