@@ -6,6 +6,7 @@ import { allChapters, getChapter, GEAR_SLOTS, MATERIAL_IDS, MATERIALS, TIER_INFO
 import type { Game } from "../game/Game";
 import { computeLoadout } from "./loadout";
 import { DEV_CHAPTERS } from "./devChapters";
+import { devP3 } from "./devP3";
 
 export function installDevApi(game: Game) {
   const mode = () => game.soloModeRef!;
@@ -88,6 +89,7 @@ export function installDevApi(game: Game) {
     hitBoss(dmg = 100) { const id = mode().runner.bossId; const m = id ? net().state.monsters.get(id) : null; if (!m) return null; m.hp = Math.max(1, m.hp - dmg); net().controllers.get(m.id)?.onHit?.(dmg); return api.state(); },
     tier: TIER_INFO, gearSlots: GEAR_SLOTS, getChapter,
   };
+  Object.assign(api, devP3(game, api));
   (window as any).__dev = api;
   return api;
 }

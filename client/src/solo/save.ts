@@ -41,7 +41,11 @@ export interface SoloSave {
   };
   /** solo clock, hour 0..24 */
   clockHour: number;
-  flags: { migratedFromV1?: boolean; oldCampaign?: boolean; seenWorkshop?: boolean };
+  flags: {
+    migratedFromV1?: boolean; oldCampaign?: boolean; seenWorkshop?: boolean;
+    /** P3 finale (chapter 30 beaten): campaign done, Free Play in every region, Hard mode unlocked (P4 implements Hard) */
+    campaignDone?: boolean; freePlayAll?: boolean; hardUnlocked?: boolean;
+  };
   createdAt: number; updatedAt: number;
 }
 
