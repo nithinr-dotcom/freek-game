@@ -1,7 +1,7 @@
 /**
  * Full screen on phones. Android Chrome: enter full screen on the first tap (a page may only ask from a user gesture).
  * iPhone/iPad Safari can't hide its bars from a page, so we show an "Add to Home Screen" tip; launched from the
- * Home Screen the game runs full screen thanks to the web app manifest (public/manifest.webmanifest).
+ * Home Screen the game runs full screen thanks to the web app manifest (public/manifest.json).
  */
 import { toggleFullscreen } from "./ui/touchControls";
 
