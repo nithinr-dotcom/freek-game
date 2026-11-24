@@ -2,24 +2,41 @@
  * Single-player "server" running in the browser. Implements GameNet so the game code is the same
  * for solo and multiplayer. Owns wind, storms, monsters (timers + AI), fishing outcomes, damage,
  * sinking, banking, missions, xp/levels, trophies and the solo Hall of Fame. Persists to SoloSave.
+ * Campaign v2 hooks: gear/skill loadout, campaign fish roll, boss controllers, NPC targets.
  */
 import {
-  DOCK_POS, DOCK_RADIUS, RESPAWN_MS, BOAT_MAX_HP, CAST_MAX_DIST, BITE_WINDOW_MS, HARPOON_RANGE, MONSTERS, HARPOON_DAMAGE,
+  DOCK_POS, DOCK_RADIUS, RESPAWN_MS, CAST_MAX_DIST, BITE_WINDOW_MS, HARPOON_RANGE, MONSTERS,
   MISSION_POOL, MAX_MONSTERS, STORM_EVERY_MS, STORM_DURATION_MS, missionTarget, zoneAt, levelFromXp, TIER_INFO, tierRank,
   type C2S, type S2C, type StateShape, type PlayerS, type MonsterS, type SquadS, type SquadId, type FishCardS, type MonsterKind,
-  type MissionS, type Tier, type ZoneId,
+  type MissionS, type Tier, type ZoneId, type Behaviour, type RegionWeather,
 } from "@freek/shared";
 import type { GameNet } from "../game/types";
 import { applyEvent, soloRollFish, type ProgressEvent } from "./progress";
 import { writeSave, sortCards, type SoloSave } from "./save";
+import { computeLoadout, type Loadout } from "./loadout";
 
 type Handler = (p: any) => void;
+
+export interface FishRoll { speciesId: string; tier: Tier; weightKg: number; points: number; behaviour?: Behaviour; usedBait?: boolean }
 
 export interface SoloHooks {
   onProgress?: (ev: ProgressEvent) => void;
   onSunk?: () => void;
   onMonsterSurface?: (m: MonsterS, boss: boolean) => void;
+  /** campaign fish roll (zone at the boat); null = default roll */
+  rollFish?: (zone: ZoneId, storm: boolean, forceMinTier?: Tier) => FishRoll | null;
+  /** a fish was landed (codex, materials, achievements) */
+  onLanded?: (card: FishCardS, perfect: boolean, roll: FishRoll) => void;
+  onBanked?: (points: number, cards: FishCardS[]) => void;
+  onMonsterKilled?: (m: MonsterS, boss: boolean) => void;
+  onHarpoonHit?: (m: MonsterS, dmg: number, crit: boolean) => void;
 }
+
+/** something monsters can attack besides the player (escort / defended NPC boats) */
+export interface MonsterTarget { id: string; x: number; z: number; alive: boolean; priority: number; damage(n: number): void }
+
+/** a boss behaviour takes over a monster's AI */
+export interface MonsterController { update(dt: number, now: number): void; onHit?(dmg: number): void; hitRadius?: number }
 
 interface MonsterAI {
   scripted: boolean; boss: boolean;
@@ -42,12 +59,21 @@ export class SoloNet implements GameNet {
   paused = false;
   /** zones the player may enter (campaign); monsters only spawn in open zones */
   zonesOpen: Record<ZoneId, boolean> = { shallows: true, reef: true, abyss: true };
-  /** extra legendary weight from the campaign (chapter 6) */
   legendaryBoost = 1;
-  /** campaign can disable random kraken spawns (boss chapter spawns its own) */
   randomKraken = true;
   randomMonsters = true;
   tutorial = false;
+  /** no storms while set (chapter weather "clear") */
+  calm = false;
+  loadout: Loadout;
+  /** assist: monster damage multiplier */
+  damageMult = 1;
+  /** region weather rules */
+  weather: RegionWeather = { windBase: 0.35, stormEveryMs: STORM_EVERY_MS, stormDurationMs: STORM_DURATION_MS, gustEveryMs: [20_000, 40_000] };
+  readonly controllers = new Map<string, MonsterController>();
+  extraTargets: () => MonsterTarget[] = () => [];
+  /** the fish on the line right now (reel mods read it) */
+  pendingRoll: FishRoll | null = null;
 
   private handlers = new Map<string, Handler[]>();
   private addM: ((m: MonsterS, id: string) => void)[] = [];
@@ -64,11 +90,13 @@ export class SoloNet implements GameNet {
   private lastSpawnAt = -1e12;
   private saveTimer = 0;
   private wasInRing = true;
+  private castSeq = 0;
 
   constructor(public readonly save: SoloSave) {
+    this.loadout = computeLoadout(save);
     const lv = levelFromXp(save.xp).level;
     const me: PlayerS = {
-      id: "me", name: save.name, squad: "tide", x: DOCK_POS.x, z: DOCK_POS.z - 6, rot: 0, speed: 0, hp: BOAT_MAX_HP, sunk: false,
+      id: "me", name: save.name, squad: "tide", x: DOCK_POS.x, z: DOCK_POS.z - 6, rot: 0, speed: 0, hp: this.loadout.maxHp, sunk: false,
       state: "sailing", bobX: 0, bobZ: 0, level: lv, xp: save.xp, coins: save.coins, unbankedPoints: 0, bankedPoints: save.bankedPoints,
       unbanked: [], trophies: save.trophies.slice(), missions: [], catches: save.catches,
     };
@@ -86,9 +114,11 @@ export class SoloNet implements GameNet {
   }
 
   get me(): PlayerS { return this.state.players.get("me")!; }
+  get maxHp() { return this.loadout.maxHp; }
+  get time() { return this.now; }
   /** delivered asynchronously (like a real server), preserving order */
   emit<K extends keyof S2C>(type: K, p: S2C[K]) { queueMicrotask(() => { for (const h of this.handlers.get(type) ?? []) h(p); }); }
-  private later(ms: number, fn: () => void) { this.timers.push({ at: this.now + ms, fn }); }
+  later(ms: number, fn: () => void) { this.timers.push({ at: this.now + ms, fn }); }
 
   on<K extends keyof S2C>(type: K, cb: (p: S2C[K]) => void) {
     const l = this.handlers.get(type) ?? [];
@@ -109,6 +139,13 @@ export class SoloNet implements GameNet {
     s.bankedPoints = me.bankedPoints; s.trophies = me.trophies.slice(); s.missions = me.missions.map((m) => ({ ...m }));
     writeSave(s);
   }
+  /** gear/skills changed: recompute stats (hp grows with the hull) */
+  setLoadout(l: Loadout) {
+    const me = this.me;
+    const wasFull = me.hp >= this.loadout.maxHp;
+    this.loadout = l;
+    if (wasFull || me.hp > l.maxHp) me.hp = l.maxHp;
+  }
 
   // ---------------------------------------------------------------- world control (campaign + dev)
   get storming() { return this.state.storm; }
@@ -120,6 +157,11 @@ export class SoloNet implements GameNet {
     if (this.state.storm) this.endStorm();
     else this.state.nextStormAt = this.now;
   }
+  setCalm(calm: boolean) {
+    this.calm = calm;
+    if (calm && this.state.storm) this.endStorm();
+    this.state.nextStormAt = calm ? Number.MAX_SAFE_INTEGER : this.now + this.weather.stormEveryMs;
+  }
   gust() { this.gustUntil = this.now + 4000; }
   hasMonster(kind?: MonsterKind) {
     let found = false;
@@ -127,12 +169,12 @@ export class SoloNet implements GameNet {
     return found;
   }
 
-  spawnMonster(kind: MonsterKind, opts: { scripted?: boolean; boss?: boolean; dist?: number } = {}): MonsterS {
+  spawnMonster(kind: MonsterKind, opts: { scripted?: boolean; boss?: boolean; dist?: number; hp?: number; at?: { x: number; z: number } } = {}): MonsterS {
     const me = this.me;
     const id = `m${++this.monsterSeq}`;
-    // spawn ahead-ish of the player, away from the dock
     let x = 0, z = 0;
-    for (let i = 0; i < 12; i++) {
+    if (opts.at) { x = opts.at.x; z = opts.at.z; }
+    else for (let i = 0; i < 12; i++) {
       const a = Math.random() * Math.PI * 2, d = opts.dist ?? 45;
       x = me.x + Math.cos(a) * d; z = me.z + Math.sin(a) * d;
       const r = Math.hypot(x - DOCK_POS.x, z - DOCK_POS.z);
@@ -140,20 +182,36 @@ export class SoloNet implements GameNet {
       if (r > 45 && r < 440 && this.zonesOpen[zone] && (kind !== "kraken" || zone === "abyss" || opts.scripted)) break;
     }
     const spec = MONSTERS[kind];
-    const m: MonsterS = { id, kind, x, z, rot: Math.atan2(me.x - x, me.z - z), hp: spec.hp, maxHp: spec.hp, state: "submerged", targetId: "me" };
+    const hp = opts.hp ?? spec.hp;
+    const m: MonsterS = { id, kind, x, z, rot: Math.atan2(me.x - x, me.z - z), hp, maxHp: hp, state: "submerged", targetId: "me" };
     this.state.monsters.set(id, m);
     this.ai.set(id, { scripted: !!opts.scripted, boss: !!opts.boss || spec.boss, nextAttack: this.now + 5000, attacks: 0, roamX: x, roamZ: z, farFor: 0, resurfaceAt: this.now + 1800, hitters: false });
     for (const cb of this.addM) cb(m, id);
-    this.emit("announce", { kind: "monster_spawn", text: `${spec.name} has appeared!`, color: "#ff4d4d", x, z });
+    if (!opts.boss) this.emit("announce", { kind: "monster_spawn", text: `${spec.name} has appeared!`, color: "#ff4d4d", x, z });
     this.lastSpawnAt = this.now;
     return m;
   }
 
-  private removeMonster(m: MonsterS) {
+  removeMonster(m: MonsterS) {
     if (!this.state.monsters.has(m.id)) return;
     this.state.monsters.delete(m.id);
     this.ai.delete(m.id);
+    this.controllers.delete(m.id);
     for (const cb of this.remM) cb(m, m.id);
+  }
+  clearMonsters() { [...this.state.monsters.values()].forEach((m) => this.removeMonster(m)); }
+  isBoss(id: string) { return !!this.ai.get(id)?.boss; }
+
+  /** chapter retry: back to the dock, full hp, no monsters, nothing pending (no item loss: the bag is kept) */
+  resetForRetry() {
+    const me = this.me;
+    this.clearMonsters();
+    this.timers = [];
+    this.pending = null; this.pendingRoll = null;
+    me.sunk = false; me.hp = this.loadout.maxHp; me.state = "sailing";
+    me.x = DOCK_POS.x; me.z = DOCK_POS.z - 6; me.rot = 0; me.speed = 0; this.wasInRing = true;
+    this.lastSpawnAt = this.now;
+    this.nextSpawnCheck = this.now + 20_000;
   }
 
   // ---------------------------------------------------------------- C2S
@@ -165,7 +223,6 @@ export class SoloNet implements GameNet {
         if (me.sunk) return;
       {
         me.x = p.x; me.z = p.z; me.rot = p.rot; me.speed = p.speed;
-        // banking: sail into the ring (or sail around inside it); fishing while parked in the ring keeps the catch
         const inRing = Math.hypot(me.x - DOCK_POS.x, me.z - DOCK_POS.z) < DOCK_RADIUS;
         if (inRing && me.unbanked.length && (!this.wasInRing || Math.abs(me.speed) > 4)) this.bank();
         this.wasInRing = inRing;
@@ -175,22 +232,24 @@ export class SoloNet implements GameNet {
       case "cast": {
         if (me.state !== "sailing" || me.sunk) return;
         me.state = "casting";
-        const dist = 6 + Math.max(0, Math.min(1, p.power)) * (CAST_MAX_DIST - 6);
+        const L = this.loadout;
+        const dist = (6 + Math.max(0, Math.min(1, p.power)) * (CAST_MAX_DIST - 6)) * L.castMult;
         const w = this.state.wind;
+        const seq = ++this.castSeq;
         this.later(350, () => {
-          if (me.state !== "casting") return;
+          if (me.state !== "casting" || seq !== this.castSeq) return;
           me.bobX = me.x + Math.sin(p.aimRad) * dist + Math.sin(w.dirRad) * w.speed * 4;
           me.bobZ = me.z + Math.cos(p.aimRad) * dist + Math.cos(w.dirRad) * w.speed * 4;
           me.state = "waiting";
-          const delay = this.tutorial ? 1500 + Math.random() * 2000 : 2000 + Math.random() * 4500;
+          const delay = (this.tutorial ? 1500 + Math.random() * 2000 : 2000 + Math.random() * 4500) * L.biteSpeed;
           this.later(delay, () => {
-            if (me.state !== "waiting") return;
+            if (me.state !== "waiting" || seq !== this.castSeq) return;
             me.state = "hooked";
-            const win = this.tutorial ? BITE_WINDOW_MS + 600 : BITE_WINDOW_MS;
+            const win = (this.tutorial ? BITE_WINDOW_MS + 600 : BITE_WINDOW_MS) + L.skills.biteWindowMs;
             this.biteOpenUntil = this.now + win + 200;
             this.emit("bite", { windowMs: win });
             this.later(win + 250, () => {
-              if (me.state === "hooked") { me.state = "sailing"; this.emit("hookResult", { ok: false }); }
+              if (me.state === "hooked" && seq === this.castSeq) { me.state = "sailing"; this.emit("hookResult", { ok: false }); }
             });
           });
         });
@@ -198,28 +257,30 @@ export class SoloNet implements GameNet {
       }
       case "hook": {
         if (me.state !== "hooked" || this.now > this.biteOpenUntil) return;
-        const zone = zoneAt(me.x, me.z);
-        const f = soloRollFish({ zone, rodLevel: me.level, storm: this.state.storm, legendaryMult: this.legendaryMult });
-        const card: FishCardS = { speciesId: f.species.id, tier: f.species.tier, weightKg: f.weightKg, points: f.points, at: Date.now(), catcher: me.name };
+        const zone = zoneAt(me.bobX || me.x, me.bobZ || me.z);
+        const roll: FishRoll = this.hooks.rollFish?.(zone, this.state.storm) ?? this.defaultRoll(zone);
+        const card: FishCardS = { speciesId: roll.speciesId, tier: roll.tier, weightKg: roll.weightKg, points: roll.points, at: Date.now(), catcher: me.name };
         const diff = TIER_INFO[card.tier].difficulty;
         const durationMs = Math.round(5000 + diff * 6000);
         this.pending = { card };
+        this.pendingRoll = roll;
         me.state = "reeling";
         this.emit("hookResult", { ok: true, tier: card.tier, difficulty: diff, durationMs });
         break;
       }
       case "reelResult": {
-        const pend = this.pending;
-        this.pending = null;
+        const pend = this.pending, roll = this.pendingRoll;
+        this.pending = null; this.pendingRoll = null;
         if (me.state === "reeling") me.state = "sailing";
         if (!pend) return;
-        if (!p.success) { this.emit("lineSnap", {}); return; }
-        this.landFish(pend.card, p.maxTension < 0.5);
+        if (!p.success) { this.emit("lineSnap", {}); this.progress({ t: "snap" }); return; }
+        this.landFish(pend.card, p.maxTension < 0.5, roll ?? { speciesId: pend.card.speciesId, tier: pend.card.tier, weightKg: pend.card.weightKg, points: pend.card.points });
         break;
       }
       case "cancelFishing":
         if (!me.sunk) me.state = "sailing";
-        this.pending = null;
+        this.pending = null; this.pendingRoll = null;
+        this.castSeq++;
         break;
       case "harpoon": this.harpoon(p.tx, p.tz); break;
       case "chat": break;
@@ -227,10 +288,12 @@ export class SoloNet implements GameNet {
     }
   }
 
-  get legendaryMult() { return (this.save.unlocks.legendaryRod ? 1.8 : 1) * this.legendaryBoost; }
-  get harpoonDamage() { return HARPOON_DAMAGE(this.me.level) + (this.save.unlocks.harpoonUpgrade ? 10 : 0); }
+  private defaultRoll(zone: ZoneId): FishRoll {
+    const f = soloRollFish({ zone, rodLevel: this.me.level, storm: this.state.storm, legendaryMult: this.legendaryBoost });
+    return { speciesId: f.species.id, tier: f.species.tier, weightKg: f.weightKg, points: f.points };
+  }
 
-  private landFish(card: FishCardS, perfect: boolean) {
+  private landFish(card: FishCardS, perfect: boolean, roll: FishRoll) {
     const me = this.me;
     const zone = zoneAt(me.x, me.z);
     const best = me.trophies[0];
@@ -247,8 +310,19 @@ export class SoloNet implements GameNet {
     }
     this.save.hof = sortCards([...this.save.hof, card]).slice(0, 20);
     this.emit("hallOfFame", { entries: this.save.hof });
-    this.progress({ t: "catch", card, zone, perfect, storm: this.state.storm });
+    this.hooks.onLanded?.(card, perfect, roll);
+    this.progress({ t: "catch", card, zone, perfect, storm: this.state.storm, usedBait: roll.usedBait });
     this.persist();
+  }
+
+  /** take a landed card out of the bag (kept as bait) */
+  takeFromBag(card: FishCardS): boolean {
+    const me = this.me;
+    const i = me.unbanked.indexOf(card);
+    if (i < 0) return false;
+    me.unbanked.splice(i, 1);
+    me.unbankedPoints = Math.max(0, me.unbankedPoints - card.points);
+    return true;
   }
 
   addXp(xp: number) {
@@ -266,7 +340,6 @@ export class SoloNet implements GameNet {
     const t = pool[Math.floor(Math.random() * pool.length)] ?? MISSION_POOL[0];
     return { id: t.id, title: t.title, progress: 0, target: missionTarget(t.kind), squad: false };
   }
-  /** replace missions that can't be done with the zones currently open */
   rerollImpossibleMissions() {
     const me = this.me;
     me.missions = me.missions.map((ms) => {
@@ -281,7 +354,7 @@ export class SoloNet implements GameNet {
   }
 
   /** feed an event to missions and the campaign */
-  private progress(ev: ProgressEvent) {
+  progress(ev: ProgressEvent) {
     const me = this.me;
     me.missions.forEach((ms, i) => {
       const tpl = MISSION_POOL.find((m) => m.id === ms.id);
@@ -300,12 +373,15 @@ export class SoloNet implements GameNet {
   private bank() {
     const me = this.me;
     const pts = me.unbankedPoints, fish = me.unbanked.length;
+    const cards = me.unbanked.slice();
     me.bankedPoints += pts;
     const sq = this.state.squads.get("tide");
     if (sq) sq.points = me.bankedPoints;
     me.unbanked = []; me.unbankedPoints = 0;
+    me.coins += Math.floor(pts / 2); // v2: 1 coin per 2 points banked
     this.emit("banked", { points: pts, fish });
-    this.progress({ t: "bank", points: pts, fish });
+    this.hooks.onBanked?.(pts, cards);
+    this.progress({ t: "bank", points: pts, fish, cards });
     this.persist();
   }
 
@@ -314,9 +390,25 @@ export class SoloNet implements GameNet {
     if (me.sunk) return;
     const d = Math.hypot(tx - me.x, tz - me.z);
     if (d > HARPOON_RANGE) { tx = me.x + ((tx - me.x) / d) * HARPOON_RANGE; tz = me.z + ((tz - me.z) / d) * HARPOON_RANGE; }
+    this.fireOne(tx, tz, false);
+    if (this.loadout.skills.twin) {
+      // second harpoon: slightly offset, a beat later
+      const a = Math.random() * Math.PI * 2;
+      this.later(140, () => this.fireOne(tx + Math.cos(a) * 1.5, tz + Math.sin(a) * 1.5, true));
+    }
+  }
+
+  private fireOne(tx: number, tz: number, twin: boolean) {
+    const me = this.me;
+    if (me.sunk) return;
     let hit: MonsterS | undefined;
-    this.state.monsters.forEach((m) => { if (m.state !== "submerged" && Math.hypot(m.x - tx, m.z - tz) < (m.kind === "kraken" ? 10 : 7)) hit = m; });
-    const dmg = this.harpoonDamage;
+    this.state.monsters.forEach((m) => {
+      const r = this.controllers.get(m.id)?.hitRadius ?? (m.kind === "kraken" ? 10 : 7);
+      if (m.state !== "submerged" && Math.hypot(m.x - tx, m.z - tz) < r + (twin ? 1.5 : 0)) hit = m;
+    });
+    const L = this.loadout;
+    const crit = !!hit && Math.random() < L.skills.critChance;
+    const dmg = Math.round(L.harpoonDamage * (crit ? 2 : 1) * (twin ? 0.6 : 1));
     this.emit("harpoonFx", { from: "me", sx: me.x, sz: me.z, tx, tz, hitMonster: hit?.id, dmg: hit ? dmg : undefined });
     if (!hit) return;
     const m = hit;
@@ -325,7 +417,9 @@ export class SoloNet implements GameNet {
     this.later(250, () => {
       if (!this.state.monsters.has(m.id)) return;
       m.hp = Math.max(0, m.hp - dmg);
-      this.progress({ t: "hit" });
+      this.hooks.onHarpoonHit?.(m, dmg, crit);
+      this.controllers.get(m.id)?.onHit?.(dmg);
+      this.progress({ t: "hit", dmg, monsterId: m.id });
       if (m.hp <= 0) this.killMonster(m);
     });
   }
@@ -333,13 +427,14 @@ export class SoloNet implements GameNet {
   private killMonster(m: MonsterS) {
     const ai = this.ai.get(m.id);
     const spec = MONSTERS[m.kind];
+    const boss = !!ai?.boss;
     this.removeMonster(m);
-    this.emit("announce", { kind: "monster_kill", text: `${spec.name} was slain!`, color: "#ffd24a", x: m.x, z: m.z });
+    if (!boss) this.emit("announce", { kind: "monster_kill", text: `${spec.name} was slain!`, color: "#ffd24a", x: m.x, z: m.z });
     const sq = this.state.squads.get("tide");
     if (sq) sq.kills++;
-    this.addXp(spec.xp);
-    if (ai?.hitters) {
-      const f = soloRollFish({ zone: "abyss", rodLevel: this.me.level, storm: false, legendaryMult: this.legendaryMult, forceMinTier: spec.lootMinTier as Tier });
+    this.addXp(Math.round(spec.xp * this.loadout.skills.lootXpMult));
+    if (ai?.hitters && !boss) {
+      const f = soloRollFish({ zone: "abyss", rodLevel: this.me.level, storm: false, legendaryMult: this.legendaryBoost, forceMinTier: spec.lootMinTier as Tier });
       const card: FishCardS = { speciesId: f.species.id, tier: f.species.tier, weightKg: f.weightKg, points: f.points, at: Date.now(), catcher: this.me.name };
       this.me.unbanked.push(card);
       this.me.unbankedPoints += card.points;
@@ -348,37 +443,43 @@ export class SoloNet implements GameNet {
       this.emit("monsterLoot", { monsterId: m.id, cards: [card] });
       this.emit("hallOfFame", { entries: this.save.hof });
     }
-    this.progress({ t: "kill", kind: m.kind });
+    this.hooks.onMonsterKilled?.(m, boss);
+    this.progress({ t: "kill", kind: m.kind, boss });
     this.persist();
   }
 
-  private damage(amount: number, by: string) {
+  /** damage to the player (monsters, bosses, hazards) */
+  damage(amount: number, by: string) {
     const me = this.me;
-    if (me.sunk) return;
+    if (me.sunk || amount <= 0) return;
+    amount = Math.max(1, Math.round(amount * this.damageMult));
     me.hp = Math.max(0, me.hp - amount);
     this.emit("damaged", { amount, hp: me.hp, byMonster: by });
-    if (me.state === "waiting" || me.state === "hooked") { me.state = "sailing"; this.pending = null; }
+    this.progress({ t: "damage", amount, by });
+    if (me.state === "waiting" || me.state === "hooked") { me.state = "sailing"; this.pending = null; this.pendingRoll = null; this.castSeq++; }
     if (me.hp <= 0) {
       me.sunk = true;
       me.state = "sailing";
-      this.pending = null;
+      this.pending = null; this.pendingRoll = null;
       const lost = me.unbanked.length;
       this.emit("announce", { kind: "sunk", text: lost ? `You were sunk! ${lost} unbanked fish lost.` : "You were sunk!", playerId: "me", color: "#ff6b6b" });
+      this.progress({ t: "sink" });
       this.hooks.onSunk?.();
-      // monsters lose interest and dive
       this.state.monsters.forEach((m) => { m.state = "submerged"; const ai = this.ai.get(m.id); if (ai) ai.resurfaceAt = this.now + 12_000; });
       this.later(RESPAWN_MS, () => {
-        me.sunk = false; me.hp = BOAT_MAX_HP; me.unbanked = []; me.unbankedPoints = 0;
+        if (!me.sunk) return;
+        me.sunk = false; me.hp = this.loadout.maxHp; me.unbanked = []; me.unbankedPoints = 0;
         me.x = DOCK_POS.x; me.z = DOCK_POS.z - 6; me.rot = 0; me.speed = 0; this.wasInRing = true;
         this.persist();
       });
     }
   }
+  heal(n: number) { const me = this.me; if (!me.sunk) me.hp = Math.min(this.loadout.maxHp, me.hp + n); }
 
   private endStorm() {
     const s = this.state;
     s.storm = false;
-    s.nextStormAt = this.now + STORM_EVERY_MS;
+    s.nextStormAt = this.calm ? Number.MAX_SAFE_INTEGER : this.now + this.weather.stormEveryMs;
     this.emit("announce", { kind: "storm_end", text: "The storm passes." });
   }
 
@@ -392,20 +493,21 @@ export class SoloNet implements GameNet {
     this.timers = this.timers.filter((t) => t.at > now);
     for (const t of due) t.fn();
 
-    // wind + gusts
-    const w = this.state.wind;
+    const w = this.state.wind, W = this.weather;
     w.dirRad += Math.sin(now / 23000) * 0.02 * dt;
-    w.speed = Math.min(1, Math.max(0.1, (this.state.storm ? 0.85 : 0.35) + Math.sin(now / 9000) * 0.15));
-    if (now >= this.nextGustAt) { this.gustUntil = now + 4000; this.nextGustAt = now + 20_000 + Math.random() * 20_000; }
+    w.speed = Math.min(1, Math.max(0.1, (this.state.storm ? 0.85 : W.windBase) + Math.sin(now / 9000) * 0.15));
+    if (now >= this.nextGustAt) { this.gustUntil = now + 4000; this.nextGustAt = now + W.gustEveryMs[0] + Math.random() * (W.gustEveryMs[1] - W.gustEveryMs[0]); }
     w.gust = now < this.gustUntil;
 
-    // storms
     const s = this.state;
-    if (!s.storm && now >= s.nextStormAt) {
+    if (!s.storm && now >= s.nextStormAt && !this.calm) {
       s.storm = true;
-      s.stormEndsAt = now + STORM_DURATION_MS;
+      s.stormEndsAt = now + W.stormDurationMs;
       this.emit("announce", { kind: "storm_start", text: "A storm rolls in! Rare fish are stirring." });
     } else if (s.storm && now >= s.stormEndsAt) this.endStorm();
+
+    const me = this.me;
+    if (!me.sunk && this.loadout.skills.repairPerSec > 0 && me.hp < this.loadout.maxHp) me.hp = Math.min(this.loadout.maxHp, me.hp + this.loadout.skills.repairPerSec * dt);
 
     this.spawnTick();
     this.monsterTick(dt);
@@ -428,29 +530,44 @@ export class SoloNet implements GameNet {
     this.spawnMonster(kraken ? "kraken" : "serpent", { dist: 55 });
   }
 
+  /** who a monster at (x,z) goes after: the player or an NPC target */
+  private pickTarget(mx: number, mz: number): { id: string; x: number; z: number; t: MonsterTarget | null } {
+    const me = this.me;
+    let best: { id: string; x: number; z: number; t: MonsterTarget | null } = { id: "me", x: me.x, z: me.z, t: null };
+    let bestScore = me.sunk ? Infinity : Math.hypot(me.x - mx, me.z - mz);
+    for (const t of this.extraTargets()) {
+      if (!t.alive) continue;
+      const score = Math.hypot(t.x - mx, t.z - mz) / Math.max(0.2, t.priority);
+      if (score < bestScore) { bestScore = score; best = { id: t.id, x: t.x, z: t.z, t }; }
+    }
+    return best;
+  }
+
   private monsterTick(dt: number) {
     const now = this.now, me = this.me;
     this.state.monsters.forEach((m) => {
+      const ctl = this.controllers.get(m.id);
+      if (ctl) { ctl.update(dt, now); return; }
       const ai = this.ai.get(m.id);
       if (!ai) return;
       const spec = MONSTERS[m.kind];
-      const dx = me.x - m.x, dz = me.z - m.z;
+      const tgt = this.pickTarget(m.x, m.z);
+      m.targetId = tgt.id;
+      const dx = tgt.x - m.x, dz = tgt.z - m.z;
       const d = Math.hypot(dx, dz) || 0.001;
       const meR = Math.hypot(me.x - DOCK_POS.x, me.z - DOCK_POS.z);
-      const safe = meR < 30;
-      // despawn random monsters left far behind
+      const safe = meR < 30 && !tgt.t;
       if (!ai.scripted) {
-        ai.farFor = d > 240 || zoneAt(me.x, me.z) === "shallows" ? ai.farFor + dt : 0;
+        ai.farFor = Math.hypot(me.x - m.x, me.z - m.z) > 240 || (zoneAt(me.x, me.z) === "shallows" && !tgt.t) ? ai.farFor + dt : 0;
         if (ai.farFor > 25) { this.removeMonster(m); return; }
       } else if (d > 220) {
-        // scripted monsters stalk: dive and reappear near the player
         if (m.state !== "submerged") { m.state = "submerged"; ai.resurfaceAt = now + 4000; }
       }
       if (m.state === "submerged") {
-        if (now >= ai.resurfaceAt && !me.sunk && !safe) {
+        if (now >= ai.resurfaceAt && (!me.sunk || tgt.t) && !safe) {
           if (d > 120) {
             const a = Math.random() * Math.PI * 2;
-            m.x = me.x + Math.cos(a) * 50; m.z = me.z + Math.sin(a) * 50;
+            m.x = tgt.x + Math.cos(a) * 50; m.z = tgt.z + Math.sin(a) * 50;
           }
           this.keepOutOfHarbour(m);
           m.state = "chasing";
@@ -458,8 +575,7 @@ export class SoloNet implements GameNet {
         }
         return;
       }
-      if (me.sunk || safe) {
-        // roam away from the harbour
+      if ((me.sunk && !tgt.t) || safe) {
         this.moveToward(m, ai.roamX, ai.roamZ, spec.speed * 0.5, dt);
         if (Math.hypot(ai.roamX - m.x, ai.roamZ - m.z) < 5) { const a = Math.random() * 6.28; ai.roamX = m.x + Math.cos(a) * 40; ai.roamZ = m.z + Math.sin(a) * 40; }
         this.keepOutOfHarbour(m);
@@ -467,34 +583,35 @@ export class SoloNet implements GameNet {
       }
       const zoneMult = zoneAt(m.x, m.z) === "abyss" ? 1.25 : 1;
       if (d > spec.attackRadius * 0.55) {
-        this.moveToward(m, me.x, me.z, spec.speed * (d > 80 ? 1.6 : 1), dt);
+        this.moveToward(m, tgt.x, tgt.z, spec.speed * (d > 80 ? 1.6 : 1), dt);
       } else m.rot = Math.atan2(dx, dz);
       this.keepOutOfHarbour(m);
       if (now >= ai.nextAttack && d < spec.attackRadius + 5) {
         ai.nextAttack = now + spec.attackEveryMs;
         ai.attacks++;
         m.state = "attacking";
-        const ax = m.kind === "kraken" ? m.x + dx * 0.5 : me.x, az = m.kind === "kraken" ? m.z + dz * 0.5 : me.z;
+        const ax = m.kind === "kraken" ? m.x + dx * 0.5 : tgt.x, az = m.kind === "kraken" ? m.z + dz * 0.5 : tgt.z;
         this.emit("monsterAttack", { monsterId: m.id, x: ax, z: az, radius: spec.attackRadius });
         this.later(m.kind === "kraken" ? 950 : 700, () => {
           if (!this.state.monsters.has(m.id)) return;
-          if (Math.hypot(me.x - ax, me.z - az) < spec.attackRadius) this.damage(Math.round(spec.damage * zoneMult), m.id);
+          const dmg = Math.round(spec.damage * zoneMult);
+          if (Math.hypot(me.x - ax, me.z - az) < spec.attackRadius) this.damage(dmg, m.id);
+          for (const t of this.extraTargets()) if (t.alive && Math.hypot(t.x - ax, t.z - az) < spec.attackRadius) t.damage(Math.round(dmg * this.damageMult));
           if (m.state === "attacking") m.state = "chasing";
-          // the kraken dives and repositions after a few slams
           if (m.kind === "kraken" && ai.attacks % 3 === 0) { m.state = "submerged"; ai.resurfaceAt = now + 6000; }
         });
       }
     });
   }
 
-  private moveToward(m: MonsterS, tx: number, tz: number, speed: number, dt: number) {
+  moveToward(m: MonsterS, tx: number, tz: number, speed: number, dt: number) {
     const dx = tx - m.x, dz = tz - m.z, d = Math.hypot(dx, dz);
     if (d < 0.01) return;
     const step = Math.min(d, speed * dt);
     m.x += (dx / d) * step; m.z += (dz / d) * step;
     m.rot = Math.atan2(dx, dz);
   }
-  private keepOutOfHarbour(m: MonsterS) {
+  keepOutOfHarbour(m: MonsterS) {
     const r = Math.hypot(m.x - DOCK_POS.x, m.z - DOCK_POS.z);
     const min = 34;
     if (r < min) { const k = min / (r || 1); m.x = DOCK_POS.x + (m.x - DOCK_POS.x) * k; m.z = DOCK_POS.z + (m.z - DOCK_POS.z) * k; }

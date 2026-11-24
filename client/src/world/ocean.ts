@@ -91,6 +91,7 @@ uniform float uTime;
 uniform float uAmp;
 uniform float uStorm;
 uniform float uFlash;
+uniform float uNight;
 uniform vec3 uSunDir;
 uniform vec3 uSunColor;
 uniform vec3 uSkyColor;
@@ -152,6 +153,7 @@ void main() {
   c = mix(c, vec3(1.0, 0.55, 0.35), ring2 * 0.18);
   c = mix(c, vec3(dot(c, vec3(0.3, 0.5, 0.2))) * vec3(0.7, 0.8, 0.9), uStorm * 0.45);
   c *= 1.0 - uStorm * 0.4;
+  c = mix(c, c * vec3(0.2, 0.27, 0.48) + uSunColor * spec * 0.6, uNight);
   c += vec3(0.6, 0.7, 0.9) * uFlash * 0.35;
   gl_FragColor = vec4(c, 1.0);
   #include <tonemapping_fragment>
@@ -164,6 +166,14 @@ export class Ocean {
   readonly material: THREE.ShaderMaterial;
   private cell: number;
   private smoothAmp = 1;
+
+  /** region biome water colours (solo) */
+  setWater(shallow: string, mid: string, deep: string) {
+    const u = this.material.uniforms;
+    (u.uShallow.value as THREE.Color).set(shallow).multiplyScalar(0.62);
+    (u.uReef.value as THREE.Color).set(mid).multiplyScalar(0.75);
+    (u.uAbyss.value as THREE.Color).set(deep);
+  }
 
   constructor(islands: IslandDef[], segs = 340) {
     const size = 1700;
@@ -183,6 +193,7 @@ export class Ocean {
         {
           uStorm: { value: 0 },
           uFlash: { value: 0 },
+          uNight: { value: 0 },
           uSunDir: { value: new THREE.Vector3(0.4, 0.8, 0.3) },
           uSunColor: { value: new THREE.Color("#fff3d6") },
           uSkyColor: { value: new THREE.Color("#bfe6ff") },

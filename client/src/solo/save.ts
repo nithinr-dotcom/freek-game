@@ -1,55 +1,113 @@
-/** Single-player save (localStorage, versioned key) + client settings. */
-import { TIER_INFO, tierRank, type FishCardS, type MissionS } from "@freek/shared";
+/** Single-player save v2 (localStorage, versioned key) with migration from v1, plus client settings. */
+import {
+  TIER_INFO, tierRank, GEAR_SLOTS, DEFAULT_COSMETICS, levelFromXp,
+  type FishCardS, type MissionS, type MaterialId, type GearSlot, type CosmeticKind, type RegionId, type Grade,
+} from "@freek/shared";
 
-export const SAVE_KEY = "tidebreakers.solo.v1";
+export const SAVE_KEY = "tidebreakers.solo.v2";
+export const SAVE_KEY_V1 = "tidebreakers.solo.v1";
 const SETTINGS_KEY = "tidebreakers.settings.v1";
 
-export interface ChapterProgress {
-  /** progress per objective (same order as ChapterDef.objectives) */
-  progress: number[];
-  elapsed: number;   // seconds of play in this chapter
-  sank: boolean;
-  introSeen: boolean;
-}
+export interface ChapterRecord { done: boolean; stars: number; grade?: Grade; bestTime?: number; fails: number; assistOffered?: boolean }
+export interface CodexEntry { n: number; recordKg: number; first: number }
 
 export interface SoloSave {
-  v: 1;
+  v: 2;
   name: string;
   level: number; xp: number; coins: number;
   catches: number; bankedPoints: number;
   trophies: FishCardS[];
   hof: FishCardS[];
   missions: MissionS[];
-  /** current campaign chapter (1..6), 7 = free play */
-  chapter: number;
-  /** best stars per chapter id */
-  stars: Record<number, number>;
-  bestTimes: Record<number, number>;
-  unlocks: { reef: boolean; abyss: boolean; harpoonUpgrade: boolean; legendaryRod: boolean };
-  current: ChapterProgress;
-  finished: boolean;
+  materials: Partial<Record<MaterialId, number>>;
+  gear: Record<GearSlot, number>;
+  skills: Record<string, number>;
+  bait: Record<string, number>;
+  baitEquipped: string | null;
+  codex: Record<string, CodexEntry>;
+  achievements: Record<string, number>;
+  stats: Record<string, number>;
+  titles: string[];
+  title: string;
+  cosmetics: string[];
+  equipped: Record<CosmeticKind, string>;
+  bossesBeaten: string[];
+  campaign: {
+    region: RegionId;
+    unlockedRegions: RegionId[];
+    chapters: Record<number, ChapterRecord>;
+    /** chapter being played (restarts from its start, or the boss checkpoint, on reload) */
+    current: { chapterId: number; introSeen: boolean; checkpointPhase: number } | null;
+  };
+  /** solo clock, hour 0..24 */
+  clockHour: number;
+  flags: { migratedFromV1?: boolean; oldCampaign?: boolean; seenWorkshop?: boolean };
   createdAt: number; updatedAt: number;
 }
 
 export function newSave(name: string): SoloSave {
   return {
-    v: 1, name: name || "Captain", level: 1, xp: 0, coins: 0, catches: 0, bankedPoints: 0,
-    trophies: [], hof: [], missions: [], chapter: 1, stars: {}, bestTimes: {},
-    unlocks: { reef: false, abyss: false, harpoonUpgrade: false, legendaryRod: false },
-    current: { progress: [], elapsed: 0, sank: false, introSeen: false },
-    finished: false, createdAt: Date.now(), updatedAt: Date.now(),
+    v: 2, name: name || "Captain", level: 1, xp: 0, coins: 0, catches: 0, bankedPoints: 0,
+    trophies: [], hof: [], missions: [],
+    materials: {}, gear: Object.fromEntries(GEAR_SLOTS.map((s) => [s, 1])) as Record<GearSlot, number>,
+    skills: {}, bait: {}, baitEquipped: null, codex: {}, achievements: {}, stats: {},
+    titles: ["deckhand"], title: "deckhand",
+    cosmetics: Object.values(DEFAULT_COSMETICS), equipped: { ...DEFAULT_COSMETICS },
+    bossesBeaten: [],
+    campaign: { region: "shallows_bay", unlockedRegions: ["shallows_bay"], chapters: {}, current: null },
+    clockHour: 10,
+    flags: {},
+    createdAt: Date.now(), updatedAt: Date.now(),
+  };
+}
+
+/** v1 shape (only the fields we carry over) */
+interface SaveV1 { v: 1; name: string; xp: number; level: number; coins: number; catches: number; bankedPoints: number; trophies: FishCardS[]; hof: FishCardS[]; missions: MissionS[]; finished: boolean; chapter: number; createdAt: number }
+
+/** v1 -> v2: keep level, xp, coins, trophies, catches; restart at Act 1; old-campaign achievement if v1 was finished */
+export function migrateV1(o: SaveV1): SoloSave {
+  const s = newSave(o.name);
+  s.xp = o.xp ?? 0; s.level = levelFromXp(s.xp).level; s.coins = o.coins ?? 0;
+  s.catches = o.catches ?? 0; s.bankedPoints = o.bankedPoints ?? 0;
+  s.trophies = o.trophies ?? []; s.hof = o.hof ?? []; s.missions = o.missions ?? [];
+  s.stats.fish = s.catches;
+  for (const c of [...s.trophies, ...s.hof]) {
+    const e = s.codex[c.speciesId] ?? { n: 0, recordKg: 0, first: c.at };
+    e.n = Math.max(e.n, 1); e.recordKg = Math.max(e.recordKg, c.weightKg);
+    s.codex[c.speciesId] = e;
+  }
+  s.flags.migratedFromV1 = true;
+  if (o.finished || (o.chapter ?? 1) > 6) { s.flags.oldCampaign = true; s.stats.oldCampaign = 1; }
+  s.createdAt = o.createdAt ?? Date.now();
+  return s;
+}
+
+function fill(s: SoloSave): SoloSave {
+  const base = newSave(s.name);
+  return {
+    ...base, ...s,
+    gear: { ...base.gear, ...s.gear }, equipped: { ...base.equipped, ...s.equipped },
+    campaign: { ...base.campaign, ...s.campaign }, flags: { ...s.flags }, stats: { ...s.stats },
   };
 }
 
 export function loadSave(): SoloSave | null {
   try {
     const raw = localStorage.getItem(SAVE_KEY);
-    if (!raw) return null;
-    const s = JSON.parse(raw) as SoloSave;
-    if (!s || s.v !== 1) return null;
-    // fill fields added later
-    const base = newSave(s.name);
-    return { ...base, ...s, unlocks: { ...base.unlocks, ...s.unlocks }, current: { ...base.current, ...s.current } };
+    if (raw) {
+      const s = JSON.parse(raw) as SoloSave;
+      if (s && s.v === 2) return fill(s);
+    }
+    const raw1 = localStorage.getItem(SAVE_KEY_V1);
+    if (raw1) {
+      const o = JSON.parse(raw1);
+      if (o && o.v === 1) {
+        const s = migrateV1(o as SaveV1);
+        writeSave(s);
+        return s;
+      }
+    }
+    return null;
   } catch {
     return null;
   }
@@ -60,7 +118,8 @@ export function writeSave(s: SoloSave) {
   try { localStorage.setItem(SAVE_KEY, JSON.stringify(s)); } catch { /* quota / private mode */ }
 }
 
-export function clearSave() { localStorage.removeItem(SAVE_KEY); }
+/** New Game: erase v2 (the v1 save is left untouched but no longer migrated) */
+export function clearSave() { localStorage.removeItem(SAVE_KEY); localStorage.removeItem(SAVE_KEY_V1); }
 
 export function sortCards(cards: FishCardS[]): FishCardS[] {
   return cards.slice().sort((a, b) => tierRank(b.tier) - tierRank(a.tier) || b.weightKg - a.weightKg);

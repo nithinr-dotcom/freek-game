@@ -1,16 +1,19 @@
-/** Shared progress rules for solo missions and campaign objectives, plus the solo fish roll. */
+/** Shared progress rules for solo missions, plus the progress event stream (missions, campaign, achievements). */
 import {
   TIERS, TIER_INFO, SPECIES, ZONE_TIER_BONUS, tierRank, fishPoints,
   type CampaignObjectiveKind, type FishCardS, type MonsterKind, type Species, type Tier, type ZoneId,
 } from "@freek/shared";
 
 export type ProgressEvent =
-  | { t: "catch"; card: FishCardS; zone: ZoneId; perfect: boolean; storm: boolean }
-  | { t: "bank"; points: number; fish: number }
-  | { t: "hit" }
-  | { t: "kill"; kind: MonsterKind };
+  | { t: "catch"; card: FishCardS; zone: ZoneId; perfect: boolean; storm: boolean; usedBait?: boolean }
+  | { t: "bank"; points: number; fish: number; cards?: FishCardS[] }
+  | { t: "hit"; dmg?: number; monsterId?: string }
+  | { t: "kill"; kind: MonsterKind; boss?: boolean; bossId?: string }
+  | { t: "snap" }
+  | { t: "damage"; amount: number; by: string }
+  | { t: "sink" };
 
-/** returns the new progress value for `kind` after `ev` */
+/** returns the new progress value for a daily mission `kind` after `ev` */
 export function applyEvent(kind: CampaignObjectiveKind, progress: number, ev: ProgressEvent): number {
   switch (kind.type) {
     case "catch_count": return ev.t === "catch" ? progress + 1 : progress;
@@ -29,7 +32,7 @@ export function applyEvent(kind: CampaignObjectiveKind, progress: number, ev: Pr
 
 export interface SoloRollOpts { zone: ZoneId; rodLevel: number; storm: boolean; legendaryMult: number; forceMinTier?: Tier }
 
-/** Same rules as shared rollFish(), plus a legendary multiplier (legendary rod, chapter 6 boost). */
+/** Same rules as shared rollFish(), plus a legendary multiplier (used for monster loot). */
 export function soloRollFish(o: SoloRollOpts): { species: Species; weightKg: number; points: number } {
   const minRank = o.forceMinTier ? tierRank(o.forceMinTier) : 0;
   const entries = TIERS.filter((t) => tierRank(t) >= minRank).map((t) => {

@@ -6,7 +6,7 @@
 import type { PlayerS, S2C, Tier } from "@freek/shared";
 import type { GameNet } from "./types";
 import type { Hud } from "../ui/hud";
-import type { ReelGame } from "../ui/reel";
+import type { ReelGame, ReelMods } from "../ui/reel";
 import { sfx } from "../audio";
 
 export type FishPhase = "idle" | "charging" | "casting" | "waiting" | "bite" | "hooking" | "reeling" | "landing";
@@ -20,6 +20,8 @@ export class Fishing {
   private reelSendT = 0;
   onBite: (() => void) | null = null;
   onCast: (() => void) | null = null;
+  /** solo campaign: behaviour + gear modifiers for the fish just hooked */
+  modsProvider: (() => ReelMods | null) | null = null;
 
   constructor(private net: GameNet, private hud: Hud, private reel: ReelGame) {
     net.on("bite", (p) => this.bite(p));
@@ -98,7 +100,7 @@ export class Fishing {
       this.net.send("reelResult", { success: r.success, maxTension: r.maxTension });
       if (r.success) { this.setPhase("landing"); this.hud.showPrompt("Landing…", "", 1.5); }
       else { this.setPhase("landing"); }
-    });
+    }, this.modsProvider?.() ?? null);
   }
   private reelLevel = 1;
   private desyncT = 0;

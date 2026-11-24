@@ -8,6 +8,9 @@ export class LocalBoat {
   private angVel = 0;
   private kx = 0; private kz = 0;
   bumped = false;
+  /** solo: load × skill speed factor and wind drift factor (1 = multiplayer) */
+  speedMult = 1;
+  windMult = 1;
 
   snap(x: number, z: number, rot: number) { this.x = x; this.z = z; this.rot = rot; this.speed = 0; this.kx = this.kz = 0; }
   knockback(fromX: number, fromZ: number, strength = 14) {
@@ -23,7 +26,7 @@ export class LocalBoat {
     this.speed += throttle * accel * dt;
     const drag = throttle === 0 ? 0.9 : 0.35;
     this.speed -= this.speed * drag * dt;
-    this.speed = clamp(this.speed, -BOAT_MAX_SPEED * 0.4, BOAT_MAX_SPEED * 0.98);
+    this.speed = clamp(this.speed, -BOAT_MAX_SPEED * 0.4 * this.speedMult, BOAT_MAX_SPEED * 0.98 * this.speedMult);
     const grip = 0.7 + 0.8 * Math.min(1, Math.abs(this.speed) / 6);
     const dir = this.speed < -0.2 ? -1 : 1;
     const targetAng = steer * 1.05 * grip * dir;
@@ -31,7 +34,7 @@ export class LocalBoat {
     this.rot += this.angVel * dt;
     let vx = Math.sin(this.rot) * this.speed, vz = Math.cos(this.rot) * this.speed;
     if (wind) {
-      const w = wind.speed * (wind.gust ? 2.6 : 1.1);
+      const w = wind.speed * (wind.gust ? 2.6 : 1.1) * this.windMult;
       vx += Math.sin(wind.dirRad) * w;
       vz += Math.cos(wind.dirRad) * w;
     }

@@ -76,3 +76,25 @@ export function resolveObstacles(p: { x: number; z: number }, radius = 2.2): boo
   }
   return hit;
 }
+
+/** A full map layout. Region layout generators (client/src/solo/regions) return one. */
+export interface LayoutData {
+  islands: IslandDef[]; rocks: RockDef[]; buoys: { x: number; z: number; zone: "reef" | "abyss" }[]; obstacles: Obstacle[];
+  lighthouse: { x: number; z: number; r: number }; pier: { x0: number; x1: number; z: number; w: number };
+}
+/** the original map (Shallows Bay; also the multiplayer ocean) */
+export const DEFAULT_LAYOUT: LayoutData = {
+  islands: ISLANDS.slice(), rocks: ROCKS.slice(), buoys: BUOYS.slice(), obstacles: OBSTACLES.slice(),
+  lighthouse: { ...LIGHTHOUSE_POS }, pier: { ...PIER },
+};
+/**
+ * Swap the active layout in place (the exported arrays keep their identity). Call before the World is built
+ * (solo region travel reloads the page with ?solo=1&region=…). Multiplayer never calls this.
+ */
+export function useLayout(l: LayoutData) {
+  const swap = <T>(a: T[], b: T[]) => { a.length = 0; a.push(...b); };
+  swap(ISLANDS, l.islands); swap(ROCKS, l.rocks); swap(BUOYS, l.buoys); swap(OBSTACLES, l.obstacles);
+  Object.assign(LIGHTHOUSE_POS, l.lighthouse); Object.assign(PIER, l.pier);
+}
+/** add a solid circle (landmarks) */
+export function addObstacle(o: Obstacle) { OBSTACLES.push(o); }

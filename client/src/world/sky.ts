@@ -11,7 +11,7 @@ void main() {
 const skyFrag = /* glsl */ `
 uniform vec3 uTop; uniform vec3 uHorizon; uniform vec3 uBottom;
 uniform vec3 uSunDir; uniform vec3 uSunColor;
-uniform float uTime; uniform float uStorm; uniform float uFlash;
+uniform float uTime; uniform float uStorm; uniform float uFlash; uniform float uNight;
 varying vec3 vDir;
 float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 float noise(vec2 p) { vec2 i = floor(p); vec2 f = fract(p); vec2 u = f*f*(3.0-2.0*f);
@@ -33,6 +33,12 @@ void main() {
     cloudCol = mix(cloudCol, uSunColor, 0.15);
     col = mix(col, cloudCol, cl * 0.85);
   }
+  // solo night: stars
+  if (uNight > 0.01 && h > 0.0) {
+    vec2 sp = floor(d.xz / (h + 0.25) * 260.0);
+    float st = step(0.996, hash(sp)) * (0.6 + 0.4 * sin(uTime * 3.0 + hash(sp + 7.0) * 40.0));
+    col += vec3(0.9, 0.95, 1.0) * st * uNight * smoothstep(0.05, 0.4, h) * (1.0 - uStorm);
+  }
   col += vec3(0.75, 0.8, 1.0) * uFlash;
   gl_FragColor = vec4(col, 1.0);
   #include <tonemapping_fragment>
@@ -44,6 +50,7 @@ const DAY_LENGTH = 720; // seconds for a full cycle
 interface Palette { top: THREE.Color; horizon: THREE.Color; sun: THREE.Color; sunI: number; hemi: number }
 const DAY: Palette = { top: new THREE.Color("#3a86d8"), horizon: new THREE.Color("#bfe4f5"), sun: new THREE.Color("#fff2d8"), sunI: 2.6, hemi: 1.15 };
 const DUSK: Palette = { top: new THREE.Color("#3b4f9a"), horizon: new THREE.Color("#ffb38a"), sun: new THREE.Color("#ffb070"), sunI: 1.8, hemi: 0.8 };
+const NIGHT: Palette = { top: new THREE.Color("#060d24"), horizon: new THREE.Color("#1d2c52"), sun: new THREE.Color("#9fb6ff"), sunI: 0.5, hemi: 0.42 };
 const STORM: Palette = { top: new THREE.Color("#2a323d"), horizon: new THREE.Color("#5b6672"), sun: new THREE.Color("#9fb0c0"), sunI: 0.7, hemi: 0.75 };
 
 export class SkySystem {
@@ -61,6 +68,15 @@ export class SkySystem {
   onThunder: ((delay: number) => void) | null = null;
 
   fogScale = 1;
+  /** solo: clock hour 0..24 (full day/night incl. real night); null = the multiplayer ambient cycle */
+  forcedHour: number | null = null;
+  /** 0 day .. 1 night (solo clock) */
+  night = 0;
+  /** solo: extra view distance multiplier (lantern at night) */
+  visMult = 1;
+  /** region biome overrides for the day palette */
+  private day: Palette = { ...DAY, top: DAY.top.clone(), horizon: DAY.horizon.clone() };
+  setBiome(top: string, horizon: string) { this.day.top.set(top); this.day.horizon.set(horizon); }
   constructor(scene: THREE.Scene, shadowSize = 2048) {
     this.mat = new THREE.ShaderMaterial({
       vertexShader: skyVert,
@@ -70,7 +86,7 @@ export class SkySystem {
       uniforms: {
         uTop: { value: new THREE.Color() }, uHorizon: { value: new THREE.Color() }, uBottom: { value: new THREE.Color("#1d5a80") },
         uSunDir: { value: new THREE.Vector3() }, uSunColor: { value: new THREE.Color() },
-        uTime: { value: 0 }, uStorm: { value: 0 }, uFlash: { value: 0 },
+        uTime: { value: 0 }, uStorm: { value: 0 }, uFlash: { value: 0 }, uNight: { value: 0 },
       },
     });
     this.dome = new THREE.Mesh(new THREE.SphereGeometry(1500, 32, 16), this.mat);
@@ -96,16 +112,36 @@ export class SkySystem {
   update(dt: number, time: number, focus: THREE.Vector3, camPos: THREE.Vector3, stormOn: boolean) {
     this.storm += ((stormOn ? 1 : 0) - this.storm) * (1 - Math.exp(-0.6 * dt));
     // day cycle: sun elevation oscillates between low golden hour and high noon (never full night)
-    const phase = (time / DAY_LENGTH) * Math.PI * 2;
-    const elev = THREE.MathUtils.lerp(0.12, 1.05, 0.5 + 0.5 * Math.sin(phase));
-    const az = phase * 0.5 + 0.8;
-    this.sunDir.set(Math.cos(az) * Math.cos(elev), Math.sin(elev), Math.sin(az) * Math.cos(elev)).normalize();
-    const duskT = 1 - THREE.MathUtils.smoothstep(elev, 0.12, 0.55);
-    const top = DAY.top.clone().lerp(DUSK.top, duskT).lerp(STORM.top, this.storm);
-    this.horizon.copy(DAY.horizon).lerp(DUSK.horizon, duskT).lerp(STORM.horizon, this.storm);
-    this.sunColor.copy(DAY.sun).lerp(DUSK.sun, duskT).lerp(STORM.sun, this.storm);
-    const sunI = THREE.MathUtils.lerp(THREE.MathUtils.lerp(DAY.sunI, DUSK.sunI, duskT), STORM.sunI, this.storm);
-    const hemiI = THREE.MathUtils.lerp(THREE.MathUtils.lerp(DAY.hemi, DUSK.hemi, duskT), STORM.hemi, this.storm);
+    const D = this.day;
+    let top: THREE.Color, sunI: number, hemiI: number;
+    if (this.forcedHour === null) {
+      const phase = (time / DAY_LENGTH) * Math.PI * 2;
+      const elev = THREE.MathUtils.lerp(0.12, 1.05, 0.5 + 0.5 * Math.sin(phase));
+      const az = phase * 0.5 + 0.8;
+      this.sunDir.set(Math.cos(az) * Math.cos(elev), Math.sin(elev), Math.sin(az) * Math.cos(elev)).normalize();
+      const duskT = 1 - THREE.MathUtils.smoothstep(elev, 0.12, 0.55);
+      top = D.top.clone().lerp(DUSK.top, duskT).lerp(STORM.top, this.storm);
+      this.horizon.copy(D.horizon).lerp(DUSK.horizon, duskT).lerp(STORM.horizon, this.storm);
+      this.sunColor.copy(D.sun).lerp(DUSK.sun, duskT).lerp(STORM.sun, this.storm);
+      sunI = THREE.MathUtils.lerp(THREE.MathUtils.lerp(D.sunI, DUSK.sunI, duskT), STORM.sunI, this.storm);
+      hemiI = THREE.MathUtils.lerp(THREE.MathUtils.lerp(D.hemi, DUSK.hemi, duskT), STORM.hemi, this.storm);
+      this.night = 0;
+    } else {
+      // solo clock: sun up 6:00–18:00, moon at night
+      const e = Math.sin(((this.forcedHour - 6) / 24) * Math.PI * 2);
+      const dayK = THREE.MathUtils.smoothstep(e, -0.2, 0.1);
+      this.night = 1 - dayK;
+      const az = (this.forcedHour / 24) * Math.PI * 2 + 0.8;
+      const elev = dayK > 0.5 ? THREE.MathUtils.lerp(0.1, 1.05, Math.max(0, e)) : 0.75;
+      const a = dayK > 0.5 ? az : az + Math.PI;
+      this.sunDir.set(Math.cos(a) * Math.cos(elev), Math.sin(elev), Math.sin(a) * Math.cos(elev)).normalize();
+      const duskT = 1 - THREE.MathUtils.smoothstep(e, 0.05, 0.5);
+      top = D.top.clone().lerp(DUSK.top, duskT).lerp(NIGHT.top, this.night).lerp(STORM.top, this.storm * (1 - this.night * 0.6));
+      this.horizon.copy(D.horizon).lerp(DUSK.horizon, duskT).lerp(NIGHT.horizon, this.night).lerp(STORM.horizon, this.storm * (1 - this.night * 0.6));
+      this.sunColor.copy(D.sun).lerp(DUSK.sun, duskT).lerp(NIGHT.sun, this.night).lerp(STORM.sun, this.storm);
+      sunI = THREE.MathUtils.lerp(THREE.MathUtils.lerp(THREE.MathUtils.lerp(D.sunI, DUSK.sunI, duskT), NIGHT.sunI, this.night), STORM.sunI, this.storm);
+      hemiI = THREE.MathUtils.lerp(THREE.MathUtils.lerp(THREE.MathUtils.lerp(D.hemi, DUSK.hemi, duskT), NIGHT.hemi, this.night), STORM.hemi, this.storm);
+    }
 
     // lightning
     if (this.storm > 0.6) {
@@ -127,6 +163,7 @@ export class SkySystem {
     u.uTime.value = time;
     u.uStorm.value = this.storm;
     u.uFlash.value = flicker * 0.8;
+    u.uNight.value = this.night;
     this.dome.position.copy(camPos);
 
     this.sun.color.copy(this.sunColor);
@@ -137,8 +174,8 @@ export class SkySystem {
     this.sun.target.position.copy(focus);
 
     this.fog.color.copy(this.horizon);
-    this.fog.near = THREE.MathUtils.lerp(150, 50, this.storm) * this.fogScale;
-    this.fog.far = THREE.MathUtils.lerp(650, 340, this.storm) * this.fogScale;
+    this.fog.near = THREE.MathUtils.lerp(150, 50, this.storm) * this.fogScale * this.visMult;
+    this.fog.far = THREE.MathUtils.lerp(650, 340, this.storm) * this.fogScale * this.visMult;
   }
 
   get flicker() { return this.flash; }

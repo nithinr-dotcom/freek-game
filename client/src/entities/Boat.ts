@@ -1,6 +1,6 @@
 /** A player's boat: model, wave bobbing/tilt, wake, name tag, sinking/respawn animation. */
 import * as THREE from "three";
-import { SQUADS, type SquadId } from "@freek/shared";
+import { SQUADS, type SquadId, type Cosmetic } from "@freek/shared";
 import { buildBoat, animateFlag, type BoatParts } from "../world/models";
 import { Assets, updateMixer } from "../world/assets";
 import { waveHeight } from "../world/ocean";
@@ -29,6 +29,10 @@ export class Boat {
   rodBend = 0;
   private squad: SquadId | "" = "";
   private nameStr = ""; private level = 0;
+  /** solo cosmetics (paint / sail / flag); null = squad colours */
+  private cos: { paint: Cosmetic; sail: Cosmetic; flag: Cosmetic } | null = null;
+  private sailMesh: THREE.Mesh | null = null;
+  private extraTag = "";
 
   constructor(scene: THREE.Scene, private labels: Labels, public readonly id: string, public readonly isLocal: boolean) {
     const color = "#cccccc";
@@ -69,7 +73,44 @@ export class Boat {
     this.flagMat.color.set(col);
     if (this.parts) this.parts.stripeMat.color.set(col);
     this.tagEl.style.setProperty("--sq", col);
-    this.tagEl.innerHTML = `<span class="lvl">${level}</span><span class="nm">${escapeHtml(name || "Sailor")}</span>`;
+    this.tagEl.innerHTML = `<span class="lvl">${level}</span><span class="nm">${escapeHtml(name || "Sailor")}</span>${this.extraTag}`;
+    if (this.cos) this.paintCosmetics();
+  }
+
+  /** solo: title under the name tag */
+  setTitle(t: string) { this.extraTag = t ? `<span class="ttl">${escapeHtml(t)}</span>` : ""; this.nameStr = ""; }
+
+  /** solo boat cosmetics: hull paint, a patterned sail and flag */
+  applyCosmetics(c: { paint: Cosmetic; sail: Cosmetic; flag: Cosmetic }) {
+    this.cos = c;
+    this.paintCosmetics();
+  }
+  private paintCosmetics() {
+    const c = this.cos!;
+    this.flagMat.color.set("#ffffff");
+    this.flagMat.map = patternTexture(c.flag, 64, 40);
+    this.flagMat.needsUpdate = true;
+    if (this.parts) {
+      this.parts.stripeMat.color.set(c.paint.color2 ?? "#f4f1ea");
+      const hull = this.parts.root.children[0] as THREE.Mesh;
+      const mats = hull.material as THREE.MeshStandardMaterial[];
+      if (Array.isArray(mats)) {
+        if (!mats[1].userData.own) { mats[1] = mats[1].clone(); mats[1].userData.own = true; }
+        mats[1].color.set(c.paint.color);
+      }
+      if (!this.sailMesh) {
+        const g = new THREE.BufferGeometry();
+        g.setAttribute("position", new THREE.Float32BufferAttribute([0, 4.25, 0.92, 0, 2.0, 0.92, 0, 2.0, -0.55], 3));
+        g.setAttribute("uv", new THREE.Float32BufferAttribute([0.5, 1, 0.5, 0, 0, 0], 2));
+        g.computeVertexNormals();
+        this.sailMesh = new THREE.Mesh(g, new THREE.MeshStandardMaterial({ side: THREE.DoubleSide, flatShading: true, roughness: 0.9 }));
+        this.sailMesh.castShadow = true;
+        this.parts.root.add(this.sailMesh);
+      }
+      const sm = this.sailMesh.material as THREE.MeshStandardMaterial;
+      sm.map = patternTexture(c.sail, 64, 64);
+      sm.needsUpdate = true;
+    }
   }
 
   setPose(x: number, z: number, rot: number, speed: number) { this.x = x; this.z = z; this.rot = rot; this.speed = speed; }
@@ -137,4 +178,36 @@ export class Boat {
     scene.remove(this.root);
     this.labels.remove(this.label);
   }
+}
+
+const texCache = new Map<string, THREE.CanvasTexture>();
+/** small canvas texture for a cosmetic pattern (solid / stripe / star / wave / skull) */
+function patternTexture(c: Cosmetic, w: number, hgt: number): THREE.CanvasTexture {
+  const key = `${c.id}:${w}x${hgt}`;
+  const hit = texCache.get(key);
+  if (hit) return hit;
+  const cv = document.createElement("canvas");
+  cv.width = w; cv.height = hgt;
+  const g = cv.getContext("2d")!;
+  g.fillStyle = c.color; g.fillRect(0, 0, w, hgt);
+  g.fillStyle = c.color2 ?? c.color;
+  switch (c.pattern) {
+    case "stripe": for (let i = 0; i < 3; i++) g.fillRect(0, hgt * (0.15 + i * 0.3), w, hgt * 0.12); break;
+    case "wave": g.beginPath(); g.moveTo(0, hgt * 0.6); for (let x = 0; x <= w; x += 4) g.lineTo(x, hgt * 0.6 + Math.sin(x / 6) * hgt * 0.08); g.lineTo(w, hgt); g.lineTo(0, hgt); g.fill(); break;
+    case "star": {
+      g.beginPath();
+      for (let i = 0; i < 10; i++) { const a = -Math.PI / 2 + (i * Math.PI) / 5, r = i % 2 ? hgt * 0.14 : hgt * 0.32; g.lineTo(w / 2 + Math.cos(a) * r, hgt / 2 + Math.sin(a) * r); }
+      g.fill(); break;
+    }
+    case "skull":
+      g.beginPath(); g.arc(w / 2, hgt * 0.42, hgt * 0.22, 0, Math.PI * 2); g.fill();
+      g.fillRect(w / 2 - hgt * 0.12, hgt * 0.55, hgt * 0.24, hgt * 0.16);
+      g.fillStyle = c.color; g.beginPath(); g.arc(w / 2 - hgt * 0.09, hgt * 0.42, hgt * 0.06, 0, 7); g.arc(w / 2 + hgt * 0.09, hgt * 0.42, hgt * 0.06, 0, 7); g.fill();
+      break;
+    default: break;
+  }
+  const t = new THREE.CanvasTexture(cv);
+  t.colorSpace = THREE.SRGBColorSpace;
+  texCache.set(key, t);
+  return t;
 }

@@ -150,6 +150,7 @@ export class World {
     (u.uSunColor.value as THREE.Color).copy(this.sky.sunColor);
     (u.uSkyColor.value as THREE.Color).copy(this.sky.horizon);
     u.uFlash.value = this.sky.flicker;
+    u.uNight.value = this.sky.night;
     if (this.beam) this.beam.rotation.y = time * 0.6;
     for (const o of this.animated) updateMixer(o, dt);
     (this.dockRing.material as THREE.ShaderMaterial).uniforms.uTime.value = time;
