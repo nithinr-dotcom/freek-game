@@ -8,6 +8,12 @@ export class Input {
   leftHeld = false;
   dragging = false;
   allowDragOrbit = true;
+  /** analog values from the touch joystick (-1..1) and the touch CAST button */
+  touchThrottle = 0;
+  touchSteer = 0;
+  touchPrimary = false;
+  private touches = new Map<number, { x: number; y: number }>();
+  private pinchDist = 0;
   /** true when typing into a text field */
   get typing() {
     const a = document.activeElement as HTMLElement | null;
@@ -39,6 +45,14 @@ export class Input {
     canvas.addEventListener("contextmenu", (e) => e.preventDefault());
     canvas.addEventListener("pointerdown", (e) => {
       (document.activeElement as HTMLElement | null)?.blur?.();
+      if (e.pointerType === "touch") {
+        // touch on the open canvas = camera (one finger orbits, two fingers pinch-zoom)
+        this.touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+        if (this.touches.size === 2) this.pinchDist = this.touchSpread();
+        try { canvas.setPointerCapture(e.pointerId); } catch { /* synthetic */ }
+        e.preventDefault();
+        return;
+      }
       this.mouseX = e.clientX; this.mouseY = e.clientY;
       this.downX = e.clientX; this.downY = e.clientY;
       if (e.button === 0) { this.leftHeld = true; this.dragging = false; this.onPrimaryDown?.(); }
@@ -47,6 +61,19 @@ export class Input {
       canvas.setPointerCapture(e.pointerId);
     });
     canvas.addEventListener("pointermove", (e) => {
+      if (e.pointerType === "touch") {
+        const t = this.touches.get(e.pointerId);
+        if (!t) return;
+        const tdx = e.clientX - t.x, tdy = e.clientY - t.y;
+        t.x = e.clientX; t.y = e.clientY;
+        if (this.touches.size === 1) { this.dragDX += tdx * 1.3; this.dragDY += tdy * 1.3; }
+        else if (this.touches.size === 2) {
+          const d = this.touchSpread();
+          if (this.pinchDist > 0) this.wheel += (this.pinchDist - d) / 45;
+          this.pinchDist = d;
+        }
+        return;
+      }
       const dx = e.clientX - this.mouseX, dy = e.clientY - this.mouseY;
       this.mouseX = e.clientX; this.mouseY = e.clientY;
       if (this.midDrag) { this.dragDX += dx; this.dragDY += dy; return; }
@@ -59,6 +86,7 @@ export class Input {
       }
     });
     const up = (e: PointerEvent) => {
+      if (e.pointerType === "touch") { this.touches.delete(e.pointerId); this.pinchDist = this.touches.size === 2 ? this.touchSpread() : 0; return; }
       if (e.button === 0 && this.leftHeld) {
         this.leftHeld = false;
         if (!this.dragging) this.onPrimaryUp?.();
@@ -69,9 +97,15 @@ export class Input {
     canvas.addEventListener("pointerup", up);
     canvas.addEventListener("pointercancel", up);
     canvas.addEventListener("wheel", (e) => { this.wheel += Math.sign(e.deltaY); e.preventDefault(); }, { passive: false });
+    // no long-press menu / double-tap zoom / gesture zoom anywhere in the game
+    for (const ev of ["gesturestart", "gesturechange", "dblclick"]) document.addEventListener(ev, (e) => e.preventDefault(), { passive: false });
   }
 
-  get primaryHeld() { return (this.leftHeld && !this.dragging) || this.keys.has("Space"); }
+  private touchSpread() {
+    const p = [...this.touches.values()];
+    return p.length < 2 ? 0 : Math.hypot(p[0].x - p[1].x, p[0].y - p[1].y);
+  }
+  get primaryHeld() { return (this.leftHeld && !this.dragging) || this.keys.has("Space") || this.touchPrimary; }
   axis(neg: string[], pos: string[]) {
     if (this.typing) return 0;
     let v = 0;

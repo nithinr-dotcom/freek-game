@@ -165,8 +165,8 @@ export class Ocean {
   private cell: number;
   private smoothAmp = 1;
 
-  constructor(islands: IslandDef[]) {
-    const size = 1700, segs = 340;
+  constructor(islands: IslandDef[], segs = 340) {
+    const size = 1700;
     this.cell = size / segs;
     const geo = new THREE.PlaneGeometry(size, size, segs, segs);
     geo.rotateX(-Math.PI / 2);

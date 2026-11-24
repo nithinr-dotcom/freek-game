@@ -11,16 +11,20 @@ interface Harpoon { group: THREE.Group; rope: THREE.Line; from: () => THREE.Vect
 interface Warning { mesh: THREE.Mesh; t: number; dur: number; onSlam: () => void; slammed: boolean }
 
 export class Effects {
-  readonly splash = new Particles(1400, false);
-  readonly sparks = new Particles(600, true);
-  readonly wake = new Wake(800);
-  readonly rain = new Rain(4000);
+  readonly splash: Particles;
+  readonly sparks: Particles;
+  readonly wake: Wake;
+  readonly rain: Rain;
   private beams: Beam[] = [];
   private harpoons: Harpoon[] = [];
   private warnings: Warning[] = [];
   private tmp = new THREE.Vector3();
 
-  constructor(private scene: THREE.Scene) {
+  constructor(private scene: THREE.Scene, tier: { splash: number; wake: number; rain: number } = { splash: 1400, wake: 800, rain: 4000 }) {
+    this.splash = new Particles(tier.splash, false);
+    this.sparks = new Particles(Math.round(tier.splash / 2.3), true);
+    this.wake = new Wake(tier.wake);
+    this.rain = new Rain(tier.rain);
     scene.add(this.splash.points, this.sparks.points, this.wake.mesh, this.rain.mesh);
   }
 

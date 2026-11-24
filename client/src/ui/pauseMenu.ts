@@ -1,6 +1,7 @@
 /** Solo pause menu: resume, chapter select, settings (volume, camera sensitivity), quit to lobby. */
 import { h } from "../util";
-import { loadSettings, saveSettings, type Settings } from "../solo/save";
+import type { Settings } from "../solo/save";
+import { settingsControls } from "./settings";
 
 export class PauseMenu {
   readonly el: HTMLElement;
@@ -12,13 +13,6 @@ export class PauseMenu {
   onSettings: ((s: Settings) => void) | null = null;
 
   constructor(root: HTMLElement) {
-    const s = loadSettings();
-    const vol = h("input", { type: "range", min: 0, max: 1, step: 0.05, value: s.volume }) as HTMLInputElement;
-    const sens = h("input", { type: "range", min: 0.3, max: 2.5, step: 0.1, value: s.camSensitivity }) as HTMLInputElement;
-    vol.value = String(s.volume); sens.value = String(s.camSensitivity);
-    const apply = () => { const ns = { volume: Number(vol.value), camSensitivity: Number(sens.value) }; saveSettings(ns); this.onSettings?.(ns); };
-    vol.addEventListener("input", apply);
-    sens.addEventListener("input", apply);
     this.main = h("div.pause-main", null,
       h("button.tb-btn.primary.big", { onclick: () => this.onResume?.() }, "▶ Resume"),
       h("button.tb-btn", { onclick: () => this.onChapters?.() }, "Chapter select"),
@@ -26,8 +20,7 @@ export class PauseMenu {
       h("button.tb-btn.ghost", { onclick: () => this.onQuit?.() }, "Quit to lobby"),
     );
     this.settingsEl = h("div.pause-settings", null,
-      h("label.setting", null, h("span", null, "Volume"), vol),
-      h("label.setting", null, h("span", null, "Camera sensitivity"), sens),
+      settingsControls((ns) => this.onSettings?.(ns)),
       h("button.tb-btn", { onclick: () => this.showSettings(false) }, "Back"),
     );
     this.el = h("div.overlay.pause-menu", null, h("div.modal.small", null, h("h2", null, "Paused"), h("p.sub", null, "Progress is saved automatically."), this.main, this.settingsEl));

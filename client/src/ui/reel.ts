@@ -36,7 +36,7 @@ export class ReelGame {
         h("div.reel-prog", null, this.progFill),
       ),
       this.tensWrap,
-      h("div.reel-hint", null, "Hold SPACE / mouse to raise"),
+      h("div.reel-hint", { html: `<span class="only-desktop">Hold SPACE / mouse to raise</span><span class="only-touch">Hold REEL to raise</span>` }),
     );
     root.append(this.el);
   }

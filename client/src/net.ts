@@ -10,13 +10,23 @@ import type { GameNet } from "./game/types";
 
 export interface RoomListing { roomId: string; code: string; hostName: string; clients: number; maxClients: number }
 
-function serverHostPort(): string {
-  const q = new URLSearchParams(location.search).get("server");
-  if (q) return q;
-  return `${location.hostname || "localhost"}:${SERVER_PORT}`;
-}
+/**
+ * Server endpoint, in priority order:
+ *  1. ?server=host:port (testing)
+ *  2. VITE_SERVER_URL at build time (e.g. https://game.example.com or wss://game.example.com:2567)
+ *  3. http(s)://<page hostname>:2567
+ * An https page always talks https/wss.
+ */
 const secure = location.protocol === "https:";
-export const HTTP_URL = `${secure ? "https" : "http"}://${serverHostPort()}`;
+function resolveServerUrl(): string {
+  const q = new URLSearchParams(location.search).get("server");
+  const env = (import.meta.env.VITE_SERVER_URL as string | undefined)?.trim();
+  let url = q ? (q.includes("://") ? q : `http://${q}`) : env || `http://${location.hostname || "localhost"}:${SERVER_PORT}`;
+  url = url.replace(/^ws:/, "http:").replace(/^wss:/, "https:").replace(/\/+$/, "");
+  if (secure) url = url.replace(/^http:/, "https:");
+  return url;
+}
+export const HTTP_URL = resolveServerUrl();
 
 let client: Client | null = null;
 function getClient(): Client {

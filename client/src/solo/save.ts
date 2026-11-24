@@ -68,13 +68,18 @@ export function sortCards(cards: FishCardS[]): FishCardS[] {
 export function tierColor(c: FishCardS) { return TIER_INFO[c.tier].color; }
 
 // ------------------------------------------------------------------ settings (both modes)
-export interface Settings { volume: number; camSensitivity: number }
+export type GraphicsSetting = "auto" | "low" | "high";
+export interface Settings { volume: number; camSensitivity: number; graphics: GraphicsSetting }
 export function loadSettings(): Settings {
   try {
     const s = JSON.parse(localStorage.getItem(SETTINGS_KEY) ?? "{}");
-    return { volume: typeof s.volume === "number" ? s.volume : 0.8, camSensitivity: typeof s.camSensitivity === "number" ? s.camSensitivity : 1 };
+    return {
+      volume: typeof s.volume === "number" ? s.volume : 0.8,
+      camSensitivity: typeof s.camSensitivity === "number" ? s.camSensitivity : 1,
+      graphics: s.graphics === "low" || s.graphics === "high" ? s.graphics : "auto",
+    };
   } catch {
-    return { volume: 0.8, camSensitivity: 1 };
+    return { volume: 0.8, camSensitivity: 1, graphics: "auto" };
   }
 }
 export function saveSettings(s: Settings) { localStorage.setItem(SETTINGS_KEY, JSON.stringify(s)); }

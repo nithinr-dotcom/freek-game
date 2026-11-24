@@ -42,6 +42,8 @@ export class MissionTracker {
     }
   }
 
+  setCollapsed(c: boolean) { this.collapsed = c; this.el.classList.toggle("collapsed", c); }
+
   /** burst effect on all bars (mission complete) */
   burst() {
     this.el.classList.remove("burst");

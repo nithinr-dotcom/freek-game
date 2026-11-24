@@ -31,6 +31,14 @@ export class Help {
           ${dev ? `<h4>Dev (?dev=1)</h4>${row("K", "Toggle storm")}${row("N", "Spawn monster")}${row("G", "Wind gust")}${row("J", "Complete chapter")}` : ""}
         </div>
       </div>
+      <div class="help-touch">
+        <h4>Touch</h4>
+        ${row("Left thumb (anywhere)", "Joystick: sail & steer")}
+        ${row("CAST button", "Hold to charge, release to cast · tap on HOOK! · hold to reel")}
+        ${row("🔱 button", "Tap: auto-aim · drag: aim, release to fire")}
+        ${row("Drag right side", "Orbit camera · pinch to zoom")}
+        ${row("✕", "Cancel fishing")}
+      </div>
       <p class="help-tip">Bank your catch by sailing into the <b>golden ring</b> at the dock. Sink and you lose everything unbanked!</p>
       <button class="tb-btn primary close-help">Got it</button>` }));
     root.append(this.el);

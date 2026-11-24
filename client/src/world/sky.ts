@@ -60,7 +60,8 @@ export class SkySystem {
   private nextBolt = 3;
   onThunder: ((delay: number) => void) | null = null;
 
-  constructor(scene: THREE.Scene) {
+  fogScale = 1;
+  constructor(scene: THREE.Scene, shadowSize = 2048) {
     this.mat = new THREE.ShaderMaterial({
       vertexShader: skyVert,
       fragmentShader: skyFrag,
@@ -81,7 +82,7 @@ export class SkySystem {
     scene.add(this.hemi);
     this.sun = new THREE.DirectionalLight("#fff2d8", 2.5);
     this.sun.castShadow = true;
-    this.sun.shadow.mapSize.set(2048, 2048);
+    this.sun.shadow.mapSize.set(shadowSize, shadowSize);
     const sc = this.sun.shadow.camera;
     sc.left = -45; sc.right = 45; sc.top = 45; sc.bottom = -45; sc.near = 1; sc.far = 260;
     this.sun.shadow.bias = -0.0006;
@@ -136,8 +137,8 @@ export class SkySystem {
     this.sun.target.position.copy(focus);
 
     this.fog.color.copy(this.horizon);
-    this.fog.near = THREE.MathUtils.lerp(150, 50, this.storm);
-    this.fog.far = THREE.MathUtils.lerp(650, 340, this.storm);
+    this.fog.near = THREE.MathUtils.lerp(150, 50, this.storm) * this.fogScale;
+    this.fog.far = THREE.MathUtils.lerp(650, 340, this.storm) * this.fogScale;
   }
 
   get flicker() { return this.flash; }

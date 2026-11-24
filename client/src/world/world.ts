@@ -9,6 +9,7 @@ import { Assets, updateMixer } from "./assets";
 import { bake, InstancedProp } from "./bake";
 import { surfaceRing } from "./decals";
 import { mulberry32 } from "../util";
+import type { GfxTier } from "../game/device";
 
 /** monsters never come within this distance of the dock (server rule) */
 export const SAFE_HARBOUR_R = 30;
@@ -28,9 +29,10 @@ export class World {
   private tmpS = new THREE.Vector3(1, 1, 1);
   private tmpP = new THREE.Vector3();
 
-  constructor(private scene: THREE.Scene) {
-    this.sky = new SkySystem(scene);
-    this.ocean = new Ocean(ISLANDS);
+  constructor(private scene: THREE.Scene, tier: GfxTier) {
+    this.sky = new SkySystem(scene, tier.shadowSize);
+    this.sky.fogScale = tier.fogScale;
+    this.ocean = new Ocean(ISLANDS, tier.oceanSegs);
     scene.add(this.ocean.mesh);
 
     // islands

@@ -34,6 +34,7 @@ export class Hud {
   onHelp: (() => void) | null = null;
   onBoard: (() => void) | null = null;
   onMute: (() => boolean) | null = null;
+  onSettings: (() => void) | null = null;
 
   constructor(root: HTMLElement) {
     this.hpFill = h("div.bar-fill.hp"); this.hpLag = h("div.bar-lag"); this.hpText = h("div.bar-text");
@@ -90,6 +91,7 @@ export class Hud {
       h("div.top-buttons", null,
         h("button.icon-btn", { title: "Leaderboard (Tab)", onclick: () => this.onBoard?.() }, "🏆"),
         h("button.icon-btn", { title: "Controls (H)", onclick: () => this.onHelp?.() }, "?"),
+        h("button.icon-btn", { title: "Settings", onclick: () => this.onSettings?.() }, "⚙"),
         muteBtn,
       ),
       this.bag,

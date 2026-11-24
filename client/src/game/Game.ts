@@ -16,6 +16,9 @@ import { Dialogue } from "../ui/dialogue";
 import { ChapterScreens, chapterSelect } from "../ui/chapterScreens";
 import { PauseMenu } from "../ui/pauseMenu";
 import { ZoneBarriers } from "../world/barrier";
+import { gfxTier, haptics, InputMode, type GfxTier } from "./device";
+import { TouchControls } from "../ui/touchControls";
+import { openSettingsModal } from "../ui/settings";
 import { World } from "../world/world";
 import { Boat } from "../entities/Boat";
 import { MonsterEntity } from "../entities/Monster";
@@ -84,11 +87,15 @@ export class Game {
   private dev = new URLSearchParams(location.search).get("dev") === "1";
   private lockToastAt = 0;
   private cinematic: { x: number; z: number; t: number; dur: number } | null = null;
+  private tier: GfxTier = gfxTier();
+  private touch: TouchControls | null = null;
+  private aimLine: THREE.Line;
+  private aimTarget: THREE.Vector3 | null = null;
 
   constructor(canvas: HTMLCanvasElement, uiRoot: HTMLElement, labelsRoot: HTMLElement) {
     this.uiRoot = uiRoot;
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: "high-performance" });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, this.tier.dprCap));
     this.renderer.setSize(window.innerWidth, window.innerHeight, false);
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -97,8 +104,14 @@ export class Game {
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
     this.camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.3, 2500);
     this.camera.position.set(40, 30, 60);
-    this.world = new World(this.scene);
-    this.fx = new Effects(this.scene);
+    this.world = new World(this.scene, this.tier);
+    this.fx = new Effects(this.scene, this.tier);
+    this.aimLine = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]),
+      new THREE.LineDashedMaterial({ color: "#ffd24a", dashSize: 1.5, gapSize: 1, transparent: true, opacity: 0.9, depthTest: false }));
+    this.aimLine.visible = false;
+    this.aimLine.frustumCulled = false;
+    this.aimLine.renderOrder = 5;
+    this.scene.add(this.aimLine);
     this.world.sky.onThunder = (d) => sfx.thunder(d);
     this.labels = new Labels(labelsRoot);
     this.input = new Input(canvas);
@@ -106,12 +119,13 @@ export class Game {
     this.barriers = new ZoneBarriers(this.scene);
     this.applySettings(loadSettings());
     window.addEventListener("resize", () => this.resize());
+    window.visualViewport?.addEventListener("resize", () => this.resize());
     this.renderer.setAnimationLoop(() => this.frame());
   }
 
   private resize() {
     const w = window.innerWidth, hh = window.innerHeight;
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, this.tier.dprCap));
     this.renderer.setSize(w, hh, false);
     this.camera.aspect = w / hh;
     this.camera.updateProjectionMatrix();
@@ -120,6 +134,13 @@ export class Game {
   applySettings(s: Settings) {
     sfx.setVolume(s.volume);
     this.chase.sensitivity = s.camSensitivity;
+    const t = gfxTier(s.graphics);
+    if (t.dprCap !== this.tier.dprCap || t.shadowSize !== this.tier.shadowSize) {
+      this.tier = { ...this.tier, dprCap: t.dprCap, shadowSize: t.shadowSize };
+      const sh = this.world?.sky.sun.shadow;
+      if (sh && sh.mapSize.x !== t.shadowSize) { sh.mapSize.set(t.shadowSize, t.shadowSize); sh.map?.dispose(); sh.map = null as unknown as THREE.WebGLRenderTarget; }
+      this.resize();
+    }
   }
 
   // ======================================================================= attach
@@ -143,11 +164,15 @@ export class Game {
     this.hud.onHelp = () => this.help.toggle();
     this.hud.onBoard = () => { if (this.board.visible) this.board.hide(); else { this.board.pinned = true; this.board.show(); } };
     this.hud.onMute = () => sfx.toggleMute();
+    this.hud.onSettings = () => openSettingsModal(ui, (st) => this.applySettings(st));
+    if (window.innerWidth < 700 || window.innerHeight < 500) this.missions.setCollapsed(true);
     this.squadPicker.onPick = (s) => { net.send("setSquad", { squad: s }); sfx.click(); };
     this.chat.onSend = (t) => net.send("chat", { text: t });
     this.reel.onClick = () => sfx.reelClick();
     this.fishing = new Fishing(net, this.hud, this.reel);
+    this.setupTouch(net);
     this.fishing.onBite = () => {
+      haptics.bite();
       const me = this.me;
       if (me) this.fx.splashAt(me.bobX, me.bobZ, 0.7);
       this.lines.get(net.sessionId)?.bite();
@@ -168,6 +193,7 @@ export class Game {
 
     // ---- messages
     net.on("catch", (p) => {
+      haptics.catch(p.card.tier);
       const tier = p.card.tier;
       const ti = TIER_INFO[tier];
       const rank = tierRank(tier);
@@ -191,6 +217,7 @@ export class Game {
       sfx.mission();
     });
     net.on("levelUp", (p) => {
+      haptics.levelUp();
       this.feed.levelUp(p.level);
       sfx.levelUp();
       this.fishing!.level = p.level;
@@ -205,6 +232,7 @@ export class Game {
       if (bp) this.labels.float(`+${p.points} BANKED`, this.tmp.set(bp.x, bp.y + 5, bp.z), "banked", 2);
     });
     net.on("damaged", (p) => {
+      haptics.damage();
       this.chase.shake(0.35 + Math.min(0.6, p.amount / 50));
       this.hud.damageFlash(p.amount / 40);
       sfx.damage();
@@ -428,12 +456,12 @@ export class Game {
     });
   }
 
-  private fireHarpoon() {
+  private fireHarpoon(target?: { x: number; z: number }) {
     const net = this.net, me = this.me;
     if (!net || !me || me.sunk || this.overlayOpen) return;
     const now = performance.now();
     if (now < this.harpoonReadyAt) return;
-    const pt = this.cursorWater();
+    const pt = target ?? this.cursorWater();
     if (!pt) return;
     let tx = pt.x, tz = pt.z;
     const dx = tx - this.local.x, dz = tz - this.local.z;
@@ -441,6 +469,47 @@ export class Game {
     if (d > HARPOON_RANGE) { tx = this.local.x + (dx / d) * HARPOON_RANGE; tz = this.local.z + (dz / d) * HARPOON_RANGE; }
     net.send("harpoon", { tx, tz });
     this.harpoonReadyAt = now + HARPOON_COOLDOWN_MS;
+  }
+
+  /** touch harpoon: drag vector (screen px) -> water point, or auto-aim at the nearest monster / ahead */
+  private touchAimPoint(aim: { dx: number; dy: number } | null): { x: number; z: number } {
+    const bx = this.local.x, bz = this.local.z;
+    if (!aim) {
+      let best: { x: number; z: number } | null = null, bd = HARPOON_RANGE + 8;
+      mapEach<MonsterS>(this.net?.state?.monsters, (m) => {
+        if (m.state === "submerged") return;
+        const d = Math.hypot(m.x - bx, m.z - bz);
+        if (d < bd) { bd = d; best = { x: m.x, z: m.z }; }
+      });
+      if (best) return best;
+      return { x: bx + Math.sin(this.local.rot) * 35, z: bz + Math.cos(this.local.rot) * 35 };
+    }
+    const hd = this.chase.heading;
+    const fx = Math.sin(hd), fz = Math.cos(hd); // screen up
+    const rx = -Math.cos(hd), rz = Math.sin(hd); // screen right
+    let wx = fx * -aim.dy + rx * aim.dx, wz = fz * -aim.dy + rz * aim.dx;
+    const len = Math.hypot(wx, wz) || 1;
+    const dist = HARPOON_RANGE * Math.min(1, Math.max(0.3, Math.hypot(aim.dx, aim.dy) / 110));
+    wx /= len; wz /= len;
+    return { x: bx + wx * dist, z: bz + wz * dist };
+  }
+
+  private setupTouch(net: GameNet) {
+    const solo = net instanceof SoloNet;
+    this.touch = new TouchControls(this.uiRoot, this.input, {
+      castDown: () => { sfx.unlock(); if (!this.overlayOpen) this.fishing?.primaryDown(this.me); },
+      castUp: () => this.fishing?.primaryUp(this.chase.heading),
+      cancel: () => this.fishing?.cancel(),
+      harpoon: (aim) => { sfx.unlock(); this.fireHarpoon(this.touchAimPoint(aim)); },
+      aimPreview: (aim) => { const p = aim ? this.touchAimPoint(aim) : null; this.aimTarget = p ? new THREE.Vector3(p.x, 0, p.z) : null; },
+      board: () => { if (this.board.visible) this.board.hide(); else { this.board.pinned = true; this.board.show(); } },
+      chat: () => this.chat.focus(),
+      squad: () => (this.squadPicker.visible ? this.squadPicker.hide() : this.squadPicker.show()),
+      menu: () => { if (solo) this.setPaused(!this.pause.visible); else this.help.toggle(); },
+      settings: () => openSettingsModal(this.uiRoot, (st) => this.applySettings(st)),
+      phase: () => this.fishing?.phase ?? "idle",
+      cooldownLeft: () => this.harpoonReadyAt - performance.now(),
+    }, { solo });
   }
 
   private cursorWater(): THREE.Vector3 | null {
@@ -475,8 +544,8 @@ export class Game {
         this.local.x = me.x; this.local.z = me.z;
       }
       const canDrive = !me.sunk && me.state !== "stunned" && !this.input.typing && !this.overlayOpen;
-      const throttle = this.input.axis(["KeyS", "ArrowDown"], ["KeyW", "ArrowUp"]);
-      const steer = this.input.axis(["KeyD", "ArrowRight"], ["KeyA", "ArrowLeft"]);
+      const throttle = Math.max(-1, Math.min(1, this.input.axis(["KeyS", "ArrowDown"], ["KeyW", "ArrowUp"]) + this.input.touchThrottle));
+      const steer = Math.max(-1, Math.min(1, this.input.axis(["KeyD", "ArrowRight"], ["KeyA", "ArrowLeft"]) + this.input.touchSteer));
       const reelSlow = this.fishing?.reeling ? 0.35 : 1;
       if (!this.solo?.paused) this.local.update(dt, throttle * reelSlow, steer, wind, canDrive);
       this.enforceLockedZones(me);
@@ -600,13 +669,26 @@ export class Game {
       this.board.update(dt, players, squads, meId, this.solo ? { save: this.solo.save, chapterLabel: this.campaign?.trackerLabel ?? "" } : undefined);
       this.squadPicker.update(players, meId);
       this.reveal.update(dt);
+      this.touch?.update();
+      this.updateAimLine();
       const harpoonAim = !!me && !me.sunk;
-      this.hud.setCrosshair(this.input.mouseX, this.input.mouseY, harpoonAim);
+      this.hud.setCrosshair(this.input.mouseX, this.input.mouseY, harpoonAim && !InputMode.touch);
     }
 
     this.renderer.render(this.scene, this.camera);
     this.labels.update(dt, this.camera, window.innerWidth, window.innerHeight);
     this.fpsTick(dt);
+  }
+
+  private updateAimLine() {
+    const t = this.aimTarget;
+    this.aimLine.visible = !!t;
+    if (!t) return;
+    const attr = this.aimLine.geometry.attributes.position as THREE.BufferAttribute;
+    attr.setXYZ(0, this.local.x, 1.2, this.local.z);
+    attr.setXYZ(1, t.x, 0.6, t.z);
+    attr.needsUpdate = true;
+    this.aimLine.computeLineDistances();
   }
 
   /** solo: push the boat back from locked zone borders */
