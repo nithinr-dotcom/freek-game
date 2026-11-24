@@ -5,7 +5,7 @@
  */
 import * as THREE from "three";
 import type { CampaignChapter, PlayerS, WeatherTag } from "@freek/shared";
-import { registerHazard, type Hazard, type HazardCtx } from "./host";
+import { registerEnvSystem, type EnvSystem, type EnvCtx } from "./host";
 
 /** 0..1 aurora strength at a clock hour (fades in 20:30–21:00, out 03:00–03:30) */
 export function auroraLevel(hour: number): number {
@@ -58,7 +58,7 @@ void main() {
   gl_FragColor = vec4(col * 1.4, a * 0.75);
 }`;
 
-class FjordSky implements Hazard {
+class FjordSky implements EnvSystem {
   readonly id = "fjordSky";
   private snow: THREE.Points;
   private snowMat: THREE.ShaderMaterial;
@@ -68,7 +68,7 @@ class FjordSky implements Hazard {
   private level = 0;
   private announced = false;
 
-  constructor(private ctx: HazardCtx) {
+  constructor(private ctx: EnvCtx) {
     const n = 2600;
     const geo = new THREE.BufferGeometry();
     const off = new Float32Array(n * 3);
@@ -166,4 +166,4 @@ class FjordSky implements Hazard {
   dispose() { this.ctx.scene.remove(this.snow, this.aurora); }
 }
 
-registerHazard({ id: "fjordSky", when: (r) => r.id === "frozen_fjord", create: (ctx) => new FjordSky(ctx) });
+registerEnvSystem({ id: "fjordSky", when: (r) => r.id === "frozen_fjord", create: (ctx) => new FjordSky(ctx) });

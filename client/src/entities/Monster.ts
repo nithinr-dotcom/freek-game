@@ -37,17 +37,27 @@ export class MonsterEntity {
     this.bar = el.querySelector(".mfill") as HTMLElement;
     this.hpText = el.querySelector(".mhp") as HTMLElement;
     this.label = labels.add(el, 400);
+    this.tagEl = el;
+  }
+  private tagEl: HTMLElement;
+  /** name tag / aim height override (solo boss parts) */
+  private labelY = 0; private aimY = 0;
+
+  /** solo bosses: swap in a custom rig and/or rename the tag (rig null keeps the model) */
+  setVisual(rig: MonsterRig | null, name?: string, opts: { labelY?: number; aimY?: number; cls?: string } = {}) {
+    if (rig) { this.root.remove(this.model); this.rig = rig; this.model = rig.root; this.root.add(this.model); }
+    if (name) this.tagEl.querySelector(".mname")!.textContent = `☠ ${name}`;
+    if (opts.cls) this.tagEl.classList.add(opts.cls);
+    if (opts.labelY) this.labelY = opts.labelY;
+    if (opts.aimY) this.aimY = opts.aimY;
   }
 
   get isBoss() { return MONSTERS[this.kind]?.boss ?? false; }
 
-  /** P3 (solo): custom name / model / label height for campaign bosses and horrors (the default rig is hidden) */
-  labelY = 0;
+  /** P3 (solo): rename + add a static model next to the (hidden) default rig, for bosses/horrors animated from outside */
   setLook(name: string, model?: THREE.Object3D, labelY = 0) {
-    const n = this.label.el.querySelector(".mname");
-    if (n) n.textContent = `☠ ${name}`;
     if (model) { this.model.visible = false; this.root.add(model); }
-    this.labelY = labelY;
+    this.setVisual(null, name, { labelY });
   }
 
   attack() { this.attackT = 0.001; }
@@ -89,7 +99,7 @@ export class MonsterEntity {
   }
 
   /** point to aim at / show hits */
-  hitPoint(out: THREE.Vector3) { return out.set(this.x, waveHeight(this.x, this.z) + (this.kind === "kraken" ? 5 : 2.5), this.z); }
+  hitPoint(out: THREE.Vector3) { return out.set(this.x, waveHeight(this.x, this.z) + (this.aimY || (this.kind === "kraken" ? 5 : 2.5)), this.z); }
 
   dispose() {
     this.scene.remove(this.root);

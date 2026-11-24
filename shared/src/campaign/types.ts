@@ -61,8 +61,10 @@ export type ObjectiveKind =
   | { type: "no_lightning_hits" }
   | { type: "under_time"; seconds: number }
   | { type: "warmth_above"; pct: number }
-  // P3: compound main objective ("reach X while collecting N", "survive while catching"): done when every part is done
+  // P2: compound objective (every part must be done; e.g. "reach X while collecting 5 pearls")
   | { type: "all"; parts: ObjectiveKind[] }
+  // P2: constraint broken when the game reports { t: "flag", flag } (boss / chapter-script rules)
+  | { type: "no_flag"; flag: string }
   // P3 constraints: never frozen by frost breath (event "frozen"), lantern fuel never at/below pct
   | { type: "no_frozen" }
   | { type: "fuel_above"; pct: number };

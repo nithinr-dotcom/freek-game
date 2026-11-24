@@ -1,8 +1,8 @@
 /**
  * P3 region hazards (cold meter, ice floes, lantern fuel / darkness, deep horrors, whirlpool) behind one small host.
- * A hazard module calls registerHazard({ id, when(region), create(ctx) }) and is imported once from ./index.ts.
- * SoloMode owns one HazardHost per session and forwards update / chapter start / objective events / meters / map.
- * Bosses reach a hazard with hazardHost.current?.get<T>(id).
+ * A hazard module calls registerEnvSystem({ id, when(region), create(ctx) }) and is imported once from ./index.ts.
+ * SoloMode owns one EnvHost per session and forwards update / chapter start / objective events / meters / map.
+ * Bosses reach a hazard with envHost.current?.get<T>(id).
  */
 import type * as THREE from "three";
 import type { CampaignChapter, PlayerS, RegionDef, WeatherTag } from "@freek/shared";
@@ -26,7 +26,7 @@ import type { BossFx } from "../bosses/registry";
 
 export interface Meters { warmth: number; fuel: number; dark: boolean }
 
-export interface HazardCtx {
+export interface EnvCtx {
   ui: HTMLElement; scene: THREE.Scene; net: SoloNet; region: RegionDef; clock: SoloClock; actors: Actors;
   local: LocalBoat; world: World; fx: Effects; labels: Labels; feed: Feed; hud: Hud; chase: ChaseCamera;
   fishing: Fishing; reel: ReelGame;
@@ -40,7 +40,7 @@ export interface HazardCtx {
   runner(): ChapterRunner;
 }
 
-export interface Hazard {
+export interface EnvSystem {
   readonly id: string;
   /** every frame, after SoloMode's own update (so it may adjust speedMult / fog / visibility) */
   update(dt: number, me: PlayerS, paused: boolean): void;
@@ -57,17 +57,17 @@ export interface Hazard {
   dispose?(): void;
 }
 
-interface HazardReg { id: string; when(region: RegionDef): boolean; create(ctx: HazardCtx): Hazard }
+interface HazardReg { id: string; when(region: RegionDef): boolean; create(ctx: EnvCtx): EnvSystem }
 const regs: HazardReg[] = [];
-export function registerHazard(r: HazardReg) { regs.push(r); }
+export function registerEnvSystem(r: HazardReg) { regs.push(r); }
 
-export class HazardHost {
-  readonly list: Hazard[];
-  constructor(readonly ctx: HazardCtx) {
+export class EnvHost {
+  readonly list: EnvSystem[];
+  constructor(readonly ctx: EnvCtx) {
     this.list = regs.filter((r) => r.when(ctx.region)).map((r) => r.create(ctx));
-    hazardHost.current = this;
+    envHost.current = this;
   }
-  get<T extends Hazard>(id: string): T | undefined { return this.list.find((h) => h.id === id) as T | undefined; }
+  get<T extends EnvSystem>(id: string): T | undefined { return this.list.find((h) => h.id === id) as T | undefined; }
   update(dt: number, me: PlayerS | undefined, paused: boolean) {
     for (const [id, apply] of looks) { const e = this.ctx.monster(id); if (e) { apply(e); looks.delete(id); } }
     if (me) for (const h of this.list) h.update(dt, me, paused);
@@ -98,4 +98,4 @@ const looks = new Map<string, (e: MonsterEntity) => void>();
 export function queueLook(monsterId: string, apply: (e: MonsterEntity) => void) { looks.set(monsterId, apply); }
 
 /** the session's host (bosses and the dev API use it) */
-export const hazardHost: { current: HazardHost | null } = { current: null };
+export const envHost: { current: EnvHost | null } = { current: null };

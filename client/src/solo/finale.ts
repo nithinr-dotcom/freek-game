@@ -4,9 +4,9 @@
  */
 import { regionList, getRegion } from "@freek/shared";
 import type { SoloSave } from "./save";
-import type { HazardCtx } from "./hazards/host";
+import type { EnvCtx } from "./hazards/host";
 import type { Lantern } from "./hazards/lantern";
-import { hazardHost } from "./hazards/host";
+import { envHost } from "./hazards/host";
 import { openCredits } from "../ui/credits";
 import { h } from "../util";
 import { sfx } from "../audio";
@@ -26,7 +26,7 @@ export function applyFinaleUnlocks(save: SoloSave): string[] {
   return out;
 }
 
-export interface FinaleCtx extends HazardCtx {
+export interface FinaleCtx extends EnvCtx {
   dialogue(lines: string[], done: () => void, title?: string): void;
 }
 
@@ -39,7 +39,7 @@ const ENDING = [
 
 export function playFinale(ctx: FinaleCtx, unlocks: string[], done: () => void) {
   const ui = ctx.ui;
-  const lantern = hazardHost.current?.get<Lantern>("lantern");
+  const lantern = envHost.current?.get<Lantern>("lantern");
   const prevFrozen = ctx.clock.frozenAt;
   // the first dawn over the Trench
   ctx.clock.frozenAt = 6.6; ctx.clock.hour = 6.6;

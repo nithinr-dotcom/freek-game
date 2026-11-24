@@ -8,7 +8,7 @@
 import * as THREE from "three";
 import { getRegion } from "@freek/shared";
 import { BossBehaviour, registerBossBehaviour, type BossEnv } from "./registry";
-import { hazardHost, queueLook } from "../hazards/host";
+import { envHost, queueLook } from "../hazards/host";
 import type { Whirlpool } from "../hazards/whirlpool";
 import type { Horrors } from "../hazards/horrors";
 import { sfx } from "../../audio";
@@ -91,12 +91,12 @@ class MaelstromEye extends BossBehaviour {
     const look = buildEyeModel();
     this.look = look;
     queueLook(m.id, (e) => { e.setLook(env.def.name, look.root, 22); e.root.scale.setScalar(1.6); });
-    hazardHost.current?.addTicker((dt, paused) => this.frame(dt, paused));
+    envHost.current?.addTicker((dt, paused) => this.frame(dt, paused));
     if (this.phase >= 2) { this.st = "duelIntro"; this.stT = 0.5; }
   }
 
-  private get whirl() { return hazardHost.current?.get<Whirlpool>("whirlpool"); }
-  private get horrors() { return hazardHost.current?.get<Horrors>("horrors"); }
+  private get whirl() { return envHost.current?.get<Whirlpool>("whirlpool"); }
+  private get horrors() { return envHost.current?.get<Horrors>("horrors"); }
   private go(s: St) { this.st = s; this.stT = 0; }
 
   protected enterPhase(p: number) {
@@ -148,7 +148,7 @@ class MaelstromEye extends BossBehaviour {
       case "closed":
         this.openK = Math.max(0, this.openK - dt * 2);
         this.glowK = Math.max(0, this.glowK - dt);
-        if (this.stT > this.closedFor && !me.sunk) { this.go("opening"); fx.roar(false); hazardHost.current?.ctx.feed.toast("<b>👁 The Eye is opening…</b>", "", 1200); }
+        if (this.stT > this.closedFor && !me.sunk) { this.go("opening"); fx.roar(false); envHost.current?.ctx.feed.toast("<b>👁 The Eye is opening…</b>", "", 1200); }
         break;
       case "opening":
         this.glowK = Math.min(1, this.stT / OPEN_TELE);
@@ -176,13 +176,13 @@ class MaelstromEye extends BossBehaviour {
       fx.splash(x2 * 0.5 + this.cx * 0.5, z2 * 0.5 + this.cz * 0.5, 3);
       sfx.slam();
       if (!p.sunk && segDist(p.x, p.z, this.cx, this.cz, x2, z2) < 3.8) { net.damage(this.phase >= 1 ? 16 : 13, this.m.id); fx.shake(0.6); }
-      for (const n of hazardHost.current?.ctx.actors.npcs ?? []) if (n.alive && segDist(n.x, n.z, this.cx, this.cz, x2, z2) < 4) n.damage(12);
+      for (const n of envHost.current?.ctx.actors.npcs ?? []) if (n.alive && segDist(n.x, n.z, this.cx, this.cz, x2, z2) < 4) n.damage(12);
     });
   }
 
   // ------------------------------------------------------------------ the Eye Duel
   private duelTick(dt: number) {
-    const m = this.m, host = hazardHost.current;
+    const m = this.m, host = envHost.current;
     if (!host) return;
     const w = this.whirl;
     if (w) w.enabledPull = false;
@@ -211,7 +211,7 @@ class MaelstromEye extends BossBehaviour {
   }
 
   private startDuel() {
-    const host = hazardHost.current;
+    const host = envHost.current;
     if (!host) return;
     const { fishing, reel, net } = host.ctx;
     fishing.cancel();
@@ -237,7 +237,7 @@ class MaelstromEye extends BossBehaviour {
   }
 
   private endDuel(won: boolean) {
-    const host = hazardHost.current;
+    const host = envHost.current;
     if (!host) return;
     host.ctx.fishing.phase = "idle";
     host.ctx.reel.el.classList.remove("eye-duel");
@@ -256,7 +256,7 @@ class MaelstromEye extends BossBehaviour {
   }
 
   private stopDuel() {
-    const host = hazardHost.current;
+    const host = envHost.current;
     if (!host || !this.duelRunning) return;
     this.duelRunning = false;
     host.ctx.reel.stop();
@@ -281,7 +281,7 @@ class MaelstromEye extends BossBehaviour {
   }
   private dispose() {
     this.whirl?.disable();
-    const host = hazardHost.current;
+    const host = envHost.current;
     if (host && this.duelRunning) { host.ctx.reel.stop(); host.ctx.fishing.phase = "idle"; }
     host?.ctx.reel.el.classList.remove("eye-duel");
     this.duelRunning = false;

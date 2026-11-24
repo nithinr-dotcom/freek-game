@@ -23,6 +23,8 @@ const PICKUP_LOOK: Record<string, { color: string; icon: string; geo: () => THRE
   fuel: { color: "#ff7a3d", icon: "⛽", geo: () => new THREE.CylinderGeometry(0.45, 0.45, 1.1, 8) },
   stormglass: { color: "#8fd0ff", icon: "🔷", geo: () => new THREE.OctahedronGeometry(0.7) },
 };
+/** later acts add pickup kinds (looks) here */
+export function registerPickupLook(kind: string, look: { color: string; icon: string; geo: () => THREE.BufferGeometry }) { PICKUP_LOOK[kind] = look; }
 
 export class Marker {
   readonly group = new THREE.Group();
@@ -76,6 +78,8 @@ export class NpcBoat implements MonsterTarget {
   hp: number; x: number; z: number; rot = 0; speed = 0;
   alive = true;
   arrived = false;
+  /** tow boats wait where they are until the player sails within reach of the rope */
+  attached = false;
   priority = 1.6;
   constructor(private env: ActorEnv, readonly id: string, readonly name: string, readonly maxHp: number, readonly mode: "tow" | "moored", x: number, z: number, wake: Effects["wake"]) {
     this.hp = maxHp; this.x = x; this.z = z;
@@ -113,18 +117,19 @@ export class NpcBoat implements MonsterTarget {
     if (this.alive && this.mode === "tow" && !this.arrived) {
       const L = 11;
       const dx = player.x - this.x, dz = player.z - this.z, d = Math.hypot(dx, dz) || 1;
-      if (d > L) {
+      if (!this.attached && d < 16) { this.attached = true; sfx.mission(); this.env.labels.float("⛓ Tow rope on!", new THREE.Vector3(this.x, 5, this.z), "pts", 1.6); }
+      if (this.attached && d > L) {
         const pull = d - L;
         this.x += (dx / d) * pull * Math.min(1, dt * 6);
         this.z += (dz / d) * pull * Math.min(1, dt * 6);
       }
       this.rot = dampAngle(this.rot, Math.atan2(dx, dz), 3, dt);
-      this.speed = damp(this.speed, d > L ? Math.abs(player.speed) : 0, 4, dt);
+      this.speed = damp(this.speed, this.attached && d > L ? Math.abs(player.speed) : 0, 4, dt);
     }
     this.boat.setPose(this.x, this.z, this.rot, this.speed);
     this.boat.update(dt, time, 0.3, this.wake);
     if (this.rope) {
-      this.rope.visible = this.alive && !this.arrived;
+      this.rope.visible = this.alive && !this.arrived && this.attached;
       const a = new THREE.Vector3(player.x, waveHeight(player.x, player.z) + 1.2, player.z);
       const b = new THREE.Vector3(this.x, waveHeight(this.x, this.z) + 1.2, this.z);
       const attr = this.rope.geometry.attributes.position as THREE.BufferAttribute;
@@ -156,12 +161,11 @@ export class Actors {
   build(ch: CampaignChapter, region: RegionDef) {
     this.clear();
     const pt = (id: string) => region.points[id];
-    // P3: compound "all" objectives contribute their parts' markers too
     const flat = (k: ObjectiveKind): ObjectiveKind[] => (k.type === "all" ? k.parts.flatMap(flat) : [k]);
     const kinds = [ch.main, ...ch.optional].flatMap((o) => flat(o.kind));
     for (const k of kinds) {
-      if (k.type === "reach" && pt(k.pointId)) this.markers.push(new Marker(this.env, k.pointId, pt(k.pointId).x, pt(k.pointId).z, pt(k.pointId).label));
-      if (k.type === "escort" && pt(k.toPointId)) { this.escorts.set(k.npcId, k.toPointId); this.markers.push(new Marker(this.env, k.toPointId, pt(k.toPointId).x, pt(k.toPointId).z, pt(k.toPointId).label, "#7dff9a")); }
+      if (k.type === "reach" && pt(k.pointId) && !this.markers.some((m) => m.pointId === k.pointId)) this.markers.push(new Marker(this.env, k.pointId, pt(k.pointId).x, pt(k.pointId).z, pt(k.pointId).label));
+      if (k.type === "escort" && pt(k.toPointId) && !this.markers.some((m) => m.pointId === k.toPointId)) { this.escorts.set(k.npcId, k.toPointId); this.markers.push(new Marker(this.env, k.toPointId, pt(k.toPointId).x, pt(k.toPointId).z, pt(k.toPointId).label, "#7dff9a")); }
     }
     for (const n of ch.setup?.npcs ?? []) {
       const p = pt(n.at) ?? { x: 0, z: -20 };

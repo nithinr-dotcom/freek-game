@@ -49,8 +49,8 @@ export class Telegraphs {
     this.scene.add(mesh);
     this.list.push({ mesh, t: 0, dur, done: onDone, fired: false, disc: false });
   }
-  circle(x: number, z: number, r: number, dur: number, onDone?: () => void) {
-    const mesh = surfaceDisc(r, "#ff3030");
+  circle(x: number, z: number, r: number, dur: number, onDone?: () => void, color = "#ff3030") {
+    const mesh = surfaceDisc(r, color);
     mesh.position.set(x, 0, z);
     this.scene.add(mesh);
     this.list.push({ mesh, t: 0, dur, done: onDone, fired: false, disc: true });

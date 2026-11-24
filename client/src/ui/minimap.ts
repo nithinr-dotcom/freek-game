@@ -1,6 +1,6 @@
 /** Top-right minimap canvas: zone rings, islands, dock, players (squad colours), monsters (red skulls). North (up) = -Z. */
 import { ZONES, WORLD_RADIUS, DOCK_POS, DOCK_RADIUS, SQUADS, type PlayerS, type MonsterS } from "@freek/shared";
-import { ISLANDS, LIGHTHOUSE_POS } from "../world/layout";
+import { ISLANDS, LIGHTHOUSE_POS, MAP_DOTS } from "../world/layout";
 import { h } from "../util";
 
 export class Minimap {
@@ -46,6 +46,7 @@ export class Minimap {
       c.fillStyle = "#f0d79b"; c.beginPath(); c.arc(isl.x * k, isl.z * k, Math.max(2.5, isl.r * k), 0, Math.PI * 2); c.fill();
       c.fillStyle = "#6cc24a"; c.beginPath(); c.arc(isl.x * k, isl.z * k, Math.max(1.5, isl.r * k * 0.6), 0, Math.PI * 2); c.fill();
     }
+    for (const d of MAP_DOTS) { c.fillStyle = d.color; c.beginPath(); c.arc(d.x * k, d.z * k, Math.max(0.9, d.r * k), 0, Math.PI * 2); c.fill(); }
     c.fillStyle = "#ddd"; c.beginPath(); c.arc(LIGHTHOUSE_POS.x * k, LIGHTHOUSE_POS.z * k, 2, 0, Math.PI * 2); c.fill();
     c.restore();
   }

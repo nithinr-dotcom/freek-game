@@ -8,7 +8,7 @@ import { registerRegionClient } from "./registry";
 import { addObstacle, DEFAULT_LAYOUT, type LayoutData, type RockDef } from "../../world/layout";
 import { waveHeight } from "../../world/ocean";
 import { mulberry32 } from "../../util";
-import { hazardHost } from "../hazards/host";
+import { envHost } from "../hazards/host";
 
 const ICEBERGS = [
   { x: -95, z: -60, r: 9 }, { x: 120, z: -150, r: 11 }, { x: -210, z: -120, r: 13 }, { x: 230, z: 170, r: 12 },
@@ -120,7 +120,7 @@ registerRegionClient({
     return {
       update(_dt, time, night) {
         // the cracks burn orange at dusk (when the char bites) and glow blue at night
-        const phase = hazardHost.current?.ctx.clock.phase;
+        const phase = envHost.current?.ctx.clock.phase;
         const duskK = phase === "dusk" ? 1 : 0;
         crackMat.color.copy(cold).lerp(dusk, Math.min(1, duskK * 1.6));
         crackMat.opacity = 0.5 + Math.max(duskK, night) * 0.5 * (0.8 + 0.2 * Math.sin(time * 2));

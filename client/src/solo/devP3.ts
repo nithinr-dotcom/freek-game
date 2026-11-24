@@ -1,5 +1,5 @@
 /** P3 additions to the ?dev=1 API (window.__dev): meters, floes, plates, the Eye Duel, finale. */
-import { hazardHost } from "./hazards/host";
+import { envHost } from "./hazards/host";
 import type { ColdMeter } from "./hazards/cold";
 import type { Lantern } from "./hazards/lantern";
 import type { IceFloes } from "./hazards/iceFloes";
@@ -9,7 +9,7 @@ import type { Game } from "../game/Game";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function devP3(game: Game, api: any) {
-  const host = () => hazardHost.current;
+  const host = () => envHost.current;
   const net = () => game.soloModeRef!.net;
   return {
     p3() {

@@ -6,7 +6,7 @@
  */
 import * as THREE from "three";
 import { DOCK_POS, type CampaignChapter, type PlayerS } from "@freek/shared";
-import { registerHazard, type Hazard, type HazardCtx } from "./host";
+import { registerEnvSystem, type EnvSystem, type EnvCtx } from "./host";
 import { MeterChip, Vignette } from "../../ui/p3Meters";
 import { waveHeight } from "../../world/ocean";
 import type { ObjEvent } from "../objectives";
@@ -20,7 +20,7 @@ const CAN_FUEL = 0.35, LANTERNFISH_FUEL = 0.25;
 
 interface Can { x: number; z: number; mesh: THREE.Mesh; respawnAt: number }
 
-export class Lantern implements Hazard {
+export class Lantern implements EnvSystem {
   readonly id = "lantern";
   fuel = 1;
   /** visibility radius (m) right now */
@@ -35,7 +35,7 @@ export class Lantern implements Hazard {
   /** bosses / scripted moments can force extra light (finale) */
   lightBoost = 0;
 
-  constructor(private ctx: HazardCtx) {
+  constructor(private ctx: EnvCtx) {
     this.chip = new MeterChip(ctx.ui, "🏮", "mc-fuel", "Lantern fuel: how far you can see");
     this.dark = new Vignette(ctx.ui, "dark");
     const spots = ctx.region.pickupSpawns.fuel ?? [];
@@ -121,4 +121,4 @@ export class Lantern implements Hazard {
   dispose() { this.chip.dispose(); this.dark.dispose(); for (const c of this.cans) this.ctx.scene.remove(c.mesh); }
 }
 
-registerHazard({ id: "lantern", when: (r) => !!r.hazards.darkness, create: (ctx) => new Lantern(ctx) });
+registerEnvSystem({ id: "lantern", when: (r) => !!r.hazards.darkness, create: (ctx) => new Lantern(ctx) });

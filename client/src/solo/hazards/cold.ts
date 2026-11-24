@@ -6,7 +6,7 @@
  */
 import * as THREE from "three";
 import { DOCK_POS, zoneAt, type CampaignChapter, type PlayerS } from "@freek/shared";
-import { registerHazard, type Hazard, type HazardCtx } from "./host";
+import { registerEnvSystem, type EnvSystem, type EnvCtx } from "./host";
 import { MeterChip, Vignette } from "../../ui/p3Meters";
 import { surfaceRing } from "../../world/decals";
 import { waveHeight } from "../../world/ocean";
@@ -36,7 +36,7 @@ function buildHeaterBuoy(): { group: THREE.Group; flame: THREE.Mesh } {
   return { group: g, flame };
 }
 
-export class ColdMeter implements Hazard {
+export class ColdMeter implements EnvSystem {
   readonly id = "cold";
   warmth = 1;
   heaters: HeaterBuoy[] = [];
@@ -49,7 +49,7 @@ export class ColdMeter implements Hazard {
   /** extra drain multiplier set by bosses (frost aura); 1 = none */
   extraDrain = 1;
 
-  constructor(private ctx: HazardCtx) {
+  constructor(private ctx: EnvCtx) {
     this.chip = new MeterChip(ctx.ui, "❄", "mc-cold", "Warmth: drains away from heat sources");
     this.frost = new Vignette(ctx.ui, "frost");
     for (const [id, p] of Object.entries(ctx.region.points)) {
@@ -151,4 +151,4 @@ export class ColdMeter implements Hazard {
   }
 }
 
-registerHazard({ id: "cold", when: (r) => !!r.hazards.cold, create: (ctx) => new ColdMeter(ctx) });
+registerEnvSystem({ id: "cold", when: (r) => !!r.hazards.cold, create: (ctx) => new ColdMeter(ctx) });

@@ -8,7 +8,7 @@
 import * as THREE from "three";
 import { getRegion } from "@freek/shared";
 import { BossBehaviour, registerBossBehaviour, type BossEnv } from "./registry";
-import { hazardHost, queueLook } from "../hazards/host";
+import { envHost, queueLook } from "../hazards/host";
 import type { IceFloes } from "../hazards/iceFloes";
 import type { ColdMeter } from "../hazards/cold";
 import { ConeTelegraphs } from "../../fx/cone";
@@ -47,7 +47,7 @@ class IceLeviathan extends BossBehaviour {
     if (pt) { this.cx = pt.x; this.cz = pt.z; }
     const m = this.m;
     m.x = this.cx; m.z = this.cz; m.state = "submerged";
-    const host = hazardHost.current;
+    const host = envHost.current;
     const scene = host?.ctx.scene;
     // plates
     const ice = new THREE.MeshStandardMaterial({ color: "#e8f7ff", emissive: "#8fd8ff", emissiveIntensity: 0.15, flatShading: true, roughness: 0.35 });
@@ -99,8 +99,8 @@ class IceLeviathan extends BossBehaviour {
     this.pickTarget();
   }
 
-  private get floes() { return hazardHost.current?.get<IceFloes>("floes"); }
-  private get cold() { return hazardHost.current?.get<ColdMeter>("cold"); }
+  private get floes() { return envHost.current?.get<IceFloes>("floes"); }
+  private get cold() { return envHost.current?.get<ColdMeter>("cold"); }
   private plateAt(x: number, z: number) { return this.plates.find((p) => Math.hypot(p.x - x, p.z - z) < PLATE_R); }
 
   private harpoonAt(x: number, z: number) {
@@ -113,7 +113,7 @@ class IceLeviathan extends BossBehaviour {
     if (p.hp <= 0) {
       p.broken = true; p.refreezeAt = this.clock + REFREEZE;
       fx.splash(p.x, p.z, 3.5); fx.shake(0.3); sfx.slam();
-      const host = hazardHost.current;
+      const host = envHost.current;
       host?.ctx.fx.sparkAt(new THREE.Vector3(p.x, 1, p.z), "#cff4ff", 70);
       if (this.plates.indexOf(p) === this.at && (this.st === "rest" || this.st === "move")) this.expose();
     } else p.crack.visible = true;
@@ -163,7 +163,7 @@ class IceLeviathan extends BossBehaviour {
   }
   private breathHit() {
     if (!this.alive) return;
-    const m = this.m, me = this.me, host = hazardHost.current;
+    const m = this.m, me = this.me, host = envHost.current;
     for (let i = 1; i <= 5; i++) {
       const r = (BREATH_LEN / 5) * i;
       host?.ctx.fx.sparkAt(new THREE.Vector3(m.x + Math.sin(this.breathDir) * r, 1.5, m.z + Math.cos(this.breathDir) * r), "#cff4ff", 30);
@@ -265,7 +265,7 @@ class IceLeviathan extends BossBehaviour {
   }
   private dispose() {
     this.alive = false;
-    const host = hazardHost.current;
+    const host = envHost.current;
     host?.ctx.scene.remove(this.group);
     this.cones?.clear();
     const f = this.floes;

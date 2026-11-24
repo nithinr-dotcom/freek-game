@@ -15,6 +15,16 @@ import "./regions/shallowsBay.js";
 import "./species/shallowsBay.js";
 import "./bosses.js";
 import "./act1.js";
+// P2: Acts 2–3
+export { addCosmetics, addTitles, addAchievements } from "./extend.js";
+import "./regions/coralMaze.js";
+import "./species/coralMaze.js";
+import "./bosses/crabTitan.js";
+import "./act2.js";
+import "./regions/stormbreak.js";
+import "./species/stormbreak.js";
+import "./bosses/stormKraken.js";
+import "./act3.js";
 // P3: Acts 4–5 (Frozen Fjord, Abyss Trench) + finale rewards
 import "./regions/frozenFjord.js";
 import "./regions/abyssTrench.js";

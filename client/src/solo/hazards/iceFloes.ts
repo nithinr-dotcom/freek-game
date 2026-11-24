@@ -5,7 +5,7 @@
  */
 import * as THREE from "three";
 import { DOCK_POS, WORLD_RADIUS, type CampaignChapter, type PlayerS } from "@freek/shared";
-import { registerHazard, type Hazard, type HazardCtx } from "./host";
+import { registerEnvSystem, type EnvSystem, type EnvCtx } from "./host";
 import { resolveObstacles } from "../../world/layout";
 import { waveHeight } from "../../world/ocean";
 import { mulberry32 } from "../../util";
@@ -33,7 +33,7 @@ function floeGeometry(r: number, seed: number): THREE.BufferGeometry {
   return geo;
 }
 
-export class IceFloes implements Hazard {
+export class IceFloes implements EnvSystem {
   readonly id = "floes";
   floes: Floe[] = [];
   /** solid circles that block floes and the boat (boss ice sheet) */
@@ -44,7 +44,7 @@ export class IceFloes implements Hazard {
   private seq = 0;
   private def: CampaignChapter | null = null;
 
-  constructor(private ctx: HazardCtx) {
+  constructor(private ctx: EnvCtx) {
     const rng = mulberry32(40404);
     const cur = 0.9; // prevailing current direction
     let tries = 0;
@@ -198,4 +198,4 @@ export class IceFloes implements Hazard {
   dispose() { for (const f of [...this.floes]) this.remove(f); }
 }
 
-registerHazard({ id: "floes", when: (r) => !!r.hazards.iceFloes, create: (ctx) => new IceFloes(ctx) });
+registerEnvSystem({ id: "floes", when: (r) => !!r.hazards.iceFloes, create: (ctx) => new IceFloes(ctx) });

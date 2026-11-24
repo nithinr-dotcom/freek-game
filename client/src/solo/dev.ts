@@ -85,7 +85,7 @@ export function installDevApi(game: Game) {
     teleport(x: number, z: number) { const l = game.localRef; l.snap(x, z, l.rot); net().me.x = x; net().me.z = z; api.step(0.1); return api.state(); },
     bank() { api.teleport(0, -40); api.teleport(0, -6); api.step(0.3); return api.state(); },
     damage(n = 10) { net().damage(n, "dev"); api.step(0.05); return api.state(); },
-    killBoss() { const id = mode().runner.bossId; const m = id ? net().state.monsters.get(id) : null; if (m) { m.hp = 1; (net() as any).fireOne(m.x, m.z, false); } api.step(0.5); return api.state(); },
+    killBoss() { const id = mode().runner.bossId; const m = id ? net().state.monsters.get(id) : null; if (m) { m.hp = 0; (net() as any).killMonster(m); } /* direct kill: works for immune / submerged bosses */ api.step(0.5); return api.state(); },
     hitBoss(dmg = 100) { const id = mode().runner.bossId; const m = id ? net().state.monsters.get(id) : null; if (!m) return null; m.hp = Math.max(1, m.hp - dmg); net().controllers.get(m.id)?.onHit?.(dmg); return api.state(); },
     tier: TIER_INFO, gearSlots: GEAR_SLOTS, getChapter,
   };

@@ -14,6 +14,7 @@ import { ObjectiveEngine, isConstraint, type ObjCtx, type ObjEvent, type ObjRunt
 import type { ProgressEvent } from "./progress";
 import { createBossBehaviour, type BossBehaviour, type BossFx } from "./bosses";
 import { nearLandmark } from "./species";
+import { createChapterScript, type ChapterScript } from "./scripts";
 
 export interface ChapterResult {
   chapter: CampaignChapter; stars: number; grade: Grade; elapsed: number; damagePct: number; assist: boolean;
@@ -67,6 +68,10 @@ export class ChapterRunner {
   private tipShown = new Set<string>();
   /** main done but action-type bonus objectives remain: finish them or return to the dock */
   wrapUp = false;
+  /** per-chapter script (solo/scripts), if the chapter has one */
+  script: ChapterScript | null = null;
+  /** bumps on every start (stale timers from an earlier attempt check it) */
+  private runSeq = 0;
 
   constructor(private env: RunnerEnv) {}
 
@@ -83,6 +88,8 @@ export class ChapterRunner {
   start(chapterId: number | CampaignChapter | null, opts: { retry?: boolean; assist?: boolean } = {}) {
     const env = this.env, net = this.net, save = this.save;
     this.env.ui.closeOverlays();
+    this.runSeq++;
+    this.endScript();
     this.cleanupBoss();
     env.actors.clear();
     this.def = typeof chapterId === "object" ? chapterId : chapterId ? getChapter(chapterId) ?? null : null;
@@ -120,6 +127,10 @@ export class ChapterRunner {
     env.onStart?.(d);
     this.obj = new ObjectiveEngine(d.main, d.optional);
     this.obj.onChange = (o) => this.onObjChange(o);
+    this.script = createChapterScript(d.id, {
+      net, actors: env.actors, clock: env.clock, region: this.region, obj: () => this.obj, elapsed: () => this.elapsed,
+      emit: (ev) => this.feed(ev), toast: (html, cls) => env.ui.toast(html, cls),
+    });
     net.persist();
     env.ui.banner(d, this.region);
     const intro = !save.campaign.current!.introSeen || !opts.retry;
@@ -178,12 +189,13 @@ export class ChapterRunner {
   feed(ev: ObjEvent) {
     this.env.onEvent?.(ev);
     if (this.status !== "running" || !this.obj) return;
+    this.script?.event?.(ev);
     this.obj.event(ev, this.ctx());
     this.checkDone();
   }
   onSunk() {
     if (this.status === "running" && this.wrapUp) { this.complete(); return; }
-    if (this.status === "running" && this.def?.fail?.ironman) setTimeout(() => this.fail("Your boat sank (ironman)"), 1400);
+    if (this.status === "running" && this.def?.fail?.ironman) { const run = this.runSeq; setTimeout(() => { if (run === this.runSeq) this.fail("Your boat sank (ironman)"); }, 1400); }
   }
   onMonsterKilled(m: MonsterS, boss: boolean) {
     if (!boss || !this.boss || this.boss.m.id !== m.id) return;
@@ -212,6 +224,8 @@ export class ChapterRunner {
     if (!d || this.status !== "running") return;
     if (this.busy || this.net.paused) return;
     this.elapsed += dt;
+    this.script?.update?.(dt);
+    if (this.status !== "running") return;
     this.obj?.tick(dt, this.ctx());
     this.checkDone();
     if (this.status !== "running") return;
@@ -244,7 +258,7 @@ export class ChapterRunner {
     const m = this.net.spawnMonster(def.monsterKind, { scripted: true, boss: true, hp, at: { x, z } });
     m.maxHp = def.hp;
     const ctl = createBossBehaviour(def.id, {
-      net: this.net, monster: m, def, fx: this.env.bossFx, startPhase: cp,
+      net: this.net, monster: m, def, fx: this.env.bossFx, startPhase: cp, emit: (ev) => this.feed(ev),
       onPhase: (p) => {
         if (this.save.campaign.current) this.save.campaign.current.checkpointPhase = p;
         this.net.persist();
@@ -257,6 +271,7 @@ export class ChapterRunner {
     this.env.ui.bossIntro(def, m);
     if (cp > 0) this.env.ui.toast(`<b>⚑ Checkpoint:</b> phase ${cp + 1} · ${def.phases[cp].name}`, "good");
   }
+  private endScript() { this.script?.dispose?.(); this.script = null; }
   private cleanupBoss() {
     if (this.boss) this.net.removeMonster(this.boss.m);
     this.boss = null; this.bossSpawnIn = -1;
@@ -267,6 +282,7 @@ export class ChapterRunner {
     const d = this.def;
     if (!d || this.status !== "running") return;
     this.status = "failed"; this.busy = true;
+    this.endScript();
     const rec = (this.save.campaign.chapters[d.id] ??= { done: false, stars: 0, fails: 0 });
     rec.fails++;
     this.net.persist();
@@ -287,6 +303,7 @@ export class ChapterRunner {
     const d = this.def, obj = this.obj;
     if (!d || !obj || this.status !== "running") return;
     this.status = "completing"; this.busy = true;
+    this.endScript();
     obj.finalize();
     const save = this.save, net = this.net;
     const stars = obj.stars;
@@ -388,6 +405,8 @@ export class ChapterRunner {
       const r = Math.hypot(me.x - DOCK_POS.x, me.z - DOCK_POS.z);
       return r < DOCK_RADIUS ? "Sail out of the golden ring and back in to bank your catch!" : `Sail into the golden ring at the dock to bank your catch (${touch ? "drag the left stick" : "W to sail, A/D to steer"}).`;
     }
+    const sh = this.script?.hint?.(me, phase);
+    if (sh) return sh;
     if (phase !== "idle") return "";
     const k = d.main.kind;
     if (k.type === "catch_species" && this.obj && !this.obj.mainDone) {

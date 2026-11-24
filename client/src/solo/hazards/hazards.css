@@ -1,0 +1,19 @@
+/* P2: hazard / boss-part UI (kept out of style.css so acts merge cleanly) */
+.solo-tint { position: absolute; inset: 0; pointer-events: none; opacity: 0; transition: opacity .8s ease; z-index: 0; }
+.monster-tag.minion .mname { font-size: 11px; }
+.monster-tag.minion .mbar { width: 64px; height: 6px; }
+.monster-tag.minion .mhp { display: none; }
+.monster-tag.titan .mname { font-size: 17px; color: #ff9a5a; }
+.monster-tag.titan .mbar { width: 220px; height: 13px; }
+.monster-tag.storm .mname { font-size: 17px; color: #c79cff; }
+.monster-tag.storm .mbar { width: 220px; height: 13px; }
+.float-num.clang { color: #cfe8ff; font-size: 18px; letter-spacing: 1px; }
+.float-num.crit { color: #ffe14d; font-size: 24px; }
+@media (max-width: 500px), (max-height: 500px) {
+  .monster-tag.titan .mbar, .monster-tag.storm .mbar { width: 150px; height: 10px; }
+  .monster-tag.minion .mbar { width: 48px; }
+}
+/* long "Boss · Phase" names (Crab Titan · Shell Guard) stay on one line on phones */
+@media (max-width: 500px) {
+  .boss-name { font-size: 14px; letter-spacing: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+}

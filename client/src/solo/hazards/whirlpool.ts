@@ -4,7 +4,7 @@
  */
 import * as THREE from "three";
 import type { PlayerS } from "@freek/shared";
-import { registerHazard, type Hazard, type HazardCtx } from "./host";
+import { registerEnvSystem, type EnvSystem, type EnvCtx } from "./host";
 import { WAVE_GLSL, waveUniforms } from "../../world/ocean";
 
 const vert = /* glsl */ `
@@ -35,7 +35,7 @@ void main() {
   gl_FragColor = vec4(col, alpha * clamp(uStrength, 0.0, 1.0));
 }`;
 
-export class Whirlpool implements Hazard {
+export class Whirlpool implements EnvSystem {
   readonly id = "whirlpool";
   active = false;
   x = 0; z = 0; R = 95; core = 12;
@@ -48,7 +48,7 @@ export class Whirlpool implements Hazard {
   private dmgAcc = 0;
   private vis = 0;
 
-  constructor(private ctx: HazardCtx) {
+  constructor(private ctx: EnvCtx) {
     const geo = new THREE.PlaneGeometry(2, 2, 48, 48);
     geo.rotateX(-Math.PI / 2);
     this.mat = new THREE.ShaderMaterial({
@@ -103,4 +103,4 @@ export class Whirlpool implements Hazard {
   dispose() { this.ctx.scene.remove(this.mesh); }
 }
 
-registerHazard({ id: "whirlpool", when: (r) => r.id === "abyss_trench", create: (ctx) => new Whirlpool(ctx) });
+registerEnvSystem({ id: "whirlpool", when: (r) => r.id === "abyss_trench", create: (ctx) => new Whirlpool(ctx) });

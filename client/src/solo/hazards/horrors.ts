@@ -5,7 +5,7 @@
  */
 import * as THREE from "three";
 import { DOCK_POS, zoneAt, type CampaignChapter, type MonsterS, type PlayerS } from "@freek/shared";
-import { registerHazard, queueLook, type Hazard, type HazardCtx } from "./host";
+import { registerEnvSystem, queueLook, type EnvSystem, type EnvCtx } from "./host";
 import type { MonsterController, SoloNet } from "../SoloNet";
 import { buildFish } from "../../entities/fishModels";
 import { sfx } from "../../audio";
@@ -41,7 +41,7 @@ export class HorrorCtl implements MonsterController {
   private ang = Math.random() * Math.PI * 2;
   private stalkFor = 3 + Math.random() * 2;
   farFor = 0;
-  constructor(private ctx: HazardCtx, readonly m: MonsterS, private dmg = 16, private tele: (x1: number, z1: number, x2: number, z2: number, dur: number) => void) {}
+  constructor(private ctx: EnvCtx, readonly m: MonsterS, private dmg = 16, private tele: (x1: number, z1: number, x2: number, z2: number, dur: number) => void) {}
 
   private target(): { x: number; z: number; npc: { damage(n: number): void } | null } {
     const me = this.ctx.net.me, m = this.m;
@@ -111,7 +111,7 @@ function segDist(x: number, z: number, ax: number, az: number, bx: number, bz: n
   return Math.hypot(x - (ax + dx * t), z - (az + dz * t));
 }
 
-export class Horrors implements Hazard {
+export class Horrors implements EnvSystem {
   readonly id = "horrors";
   private want = false;
   private keep = 0;
@@ -120,7 +120,7 @@ export class Horrors implements Hazard {
   private ctls = new Map<string, HorrorCtl>();
   private def: CampaignChapter | null = null;
 
-  constructor(private ctx: HazardCtx) {
+  constructor(private ctx: EnvCtx) {
     // horrors are announced as "Deep Horror", not as the serpent they're built on
     const net = ctx.net as SoloNet & { emit: SoloNet["emit"] };
     const orig = net.emit.bind(net);
@@ -183,4 +183,4 @@ export class Horrors implements Hazard {
   }
 }
 
-registerHazard({ id: "horrors", when: (r) => r.id === "abyss_trench", create: (ctx) => new Horrors(ctx) });
+registerEnvSystem({ id: "horrors", when: (r) => r.id === "abyss_trench", create: (ctx) => new Horrors(ctx) });

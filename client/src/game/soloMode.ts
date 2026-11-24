@@ -18,8 +18,9 @@ import { computeLoadout, loadFactor } from "../solo/loadout";
 import { campaignRoll, speciesInfo } from "../solo/species";
 import { regionClient, type RegionDecor } from "../solo/regions";
 import type { BossFx } from "../solo/bosses";
+import { HazardHost, EnvHost } from "../solo/hazards";
+import { lineGate } from "../solo/lineGates";
 import { Telegraphs } from "../fx/telegraphs";
-import { HazardHost } from "../solo/hazards";
 import { applyFinaleUnlocks, playFinale, FINALE_CHAPTER } from "../solo/finale";
 import { CampaignScreens } from "../ui/campaignScreens";
 import { SoloHud } from "../ui/soloHud";
@@ -57,8 +58,8 @@ export class SoloMode {
   readonly runner: ChapterRunner;
   readonly actors: Actors;
   readonly ach: AchievementTracker;
-  /** P3 region hazards (cold, floes, lantern, horrors, whirlpool) */
-  readonly hazards: HazardHost;
+  /** P3 environment systems (cold, floes, sky, lantern, horrors, whirlpool); P2 hazards are `hazards` */
+  readonly env: EnvHost;
   private finaleUnlocks: string[] | null = null;
   private screens: CampaignScreens;
   private shud: SoloHud;
@@ -71,6 +72,11 @@ export class SoloMode {
   private wasAtDock = false;
   private restFade: HTMLElement;
   private cosApplied = "";
+  /** region hazard systems (coral contact, lightning, …) */
+  hazards: HazardHost | null = null;
+  private tintEl: HTMLElement;
+  /** a line-gated fish is on a line that can't hold it: tension forced up (s) */
+  private gateSnap = 0;
 
   constructor(readonly net: SoloNet, private g: SoloGameCtx, startChapter?: number) {
     const save = net.save;
@@ -87,7 +93,8 @@ export class SoloMode {
     this.tele = new Telegraphs(g.scene);
     this.screens = new CampaignScreens(g.ui);
     this.restFade = h("div.rest-fade");
-    g.ui.append(this.restFade);
+    this.tintEl = h("div.solo-tint");
+    g.ui.append(this.restFade, this.tintEl);
     this.shud = new SoloHud(g.ui, g.hud.bagEl, {
       bait: () => this.baitKey(), keepBait: () => this.keepBait(), workshop: () => this.openWorkshop(), chart: () => this.openChart(), rest: () => this.rest(), codex: () => this.openCodex(),
     });
@@ -112,9 +119,12 @@ export class SoloMode {
     g.fishing.modsProvider = () => {
       const r = net.pendingRoll, L = net.loadout;
       if (!r) return null;
+      const gate = lineGate(r.speciesId, L.ratingKg);
+      this.gateSnap = gate ? 1 : 0;
+      if (gate) setTimeout(() => g.feed.toast(gate, "bad", 4200), 300);
       return {
         behaviour: r.behaviour, weightKg: r.weightKg, ratingKg: L.ratingKg, fillMult: L.fillMult, liftMult: L.liftMult,
-        zoneBonus: L.skills.zoneBonus, tensionMult: L.skills.tensionMult, secondWind: L.skills.secondWind,
+        zoneBonus: L.skills.zoneBonus, tensionMult: L.skills.tensionMult * (gate ? 3 : 1), secondWind: L.skills.secondWind && !gate,
         onSecondWind: () => { sfx.mission(); g.hud.showPrompt("💨 SECOND WIND!", "", 1.2); },
       };
     };
@@ -127,9 +137,14 @@ export class SoloMode {
       splash: (x, z, s) => g.fx.splashAt(x, z, s),
       attackAnim: () => { const id = this.runner.bossId; if (id) g.monster(id)?.attack(); },
       announce: (t) => g.feed.announce(t, "#ff4fd8", "☠", true),
+      dress: (id, rig, name, opts) => g.monster(id)?.setVisual(rig, name, opts),
+      spark: (x, y, z, color, n) => g.fx.sparkAt(new THREE.Vector3(x, y, z), color, n ?? 30),
+      float: (text, x, y, z, cls) => g.labels.float(text, new THREE.Vector3(x, y, z), cls ?? "hit", 1.2),
+      tint: (color, a) => { this.tintEl.style.background = `radial-gradient(ellipse at center, transparent 18%, ${color} 70%)`; this.tintEl.style.opacity = String(Math.max(0, Math.min(1, a))); },
+      toast: (html, cls) => g.feed.toast(html, cls ?? "", 3000),
     };
 
-    this.hazards = new HazardHost({
+    this.env = new EnvHost({
       ui: g.ui, scene: g.scene, net, region: R, clock: this.clock, actors: this.actors, local: g.local, world: g.world, fx: g.fx, labels: g.labels,
       feed: g.feed, hud: g.hud, chase: g.chase, fishing: g.fishing, reel: g.reel, bossFx, cinematic: g.cinematic, slowmo: g.slowmo,
       boat: g.boat, monster: g.monster, runner: () => this.runner,
@@ -141,17 +156,17 @@ export class SoloMode {
       onComplete: (r) => this.onChapterComplete(r),
       openChart: () => this.openChart(),
       grantMaterial: (id, n) => this.grantMaterial(id, n, false),
-      meters: () => this.hazards.meters(),
-      onStart: (d) => this.hazards.onStart(d),
-      onEvent: (ev) => this.hazards.onEvent(ev),
+      meters: () => this.env.meters(),
+      onStart: (d) => this.env.onStart(d),
+      onEvent: (ev) => this.env.onEvent(ev),
       ui: {
         dialogue: (lines, done, title) => g.dialogue.show(lines, done, title),
-        banner: (ch, region) => { this.screens.showBanner(ch, region); g.hud.setRoom(ch ? `CH.${ch.act}-${ch.index}` : "FREE", false); },
+        banner: (ch, region) => { this.hazards?.reset(); bossFx.tint?.("#000", 0); this.screens.showBanner(ch, region); g.hud.setRoom(ch ? `CH.${ch.act}-${ch.index}` : "FREE", false); },
         complete: (r, a) => {
           g.fishing.cancel();
           const unlocks = this.finaleUnlocks;
           this.finaleUnlocks = null;
-          if (unlocks && r.chapter.id === FINALE_CHAPTER) playFinale({ ...this.hazards.ctx, dialogue: (l, d, t) => g.dialogue.show(l, d, t) }, unlocks, () => this.screens.showComplete(r, a));
+          if (unlocks && r.chapter.id === FINALE_CHAPTER) playFinale({ ...this.env.ctx, dialogue: (l, d, t) => g.dialogue.show(l, d, t) }, unlocks, () => this.screens.showComplete(r, a));
           else this.screens.showComplete(r, a);
         },
         failed: (f, a) => { g.fishing.cancel(); this.tele.clear(); this.screens.showFailed(f, a); },
@@ -171,6 +186,14 @@ export class SoloMode {
       },
     });
 
+    // ---- region hazards (P2): one system per flag in region.hazards
+    this.hazards = new HazardHost({
+      scene: g.scene, net, fx: g.fx, labels: g.labels, tele: this.tele, sky: g.world.sky, region: R,
+      boat: () => g.local, npcs: () => this.actors.npcs,
+      emit: (ev) => this.runner.feed(ev), toast: (html, cls) => g.feed.toast(html, cls ?? "", 2600), shake: (n) => g.chase.shake(n),
+      live: () => (this.runner.status === "running" || this.runner.status === "free") && !this.runner.busy && !net.paused && !this.screens.visible,
+    }, Object.entries(R.hazards).filter(([, on]) => on).map(([k]) => k));
+
     // ---- first chapter
     const cur = save.campaign.current;
     const next = ChapterRunner.nextChapter(save);
@@ -189,7 +212,7 @@ export class SoloMode {
     if (st.storm) { s.add("storm"); s.add("rain"); }
     if (st.wind.gust) s.add("gust");
     if (this.region.weather.aurora && this.clock.phase === "night") s.add("aurora");
-    this.hazards.weather(s);
+    this.env.weather(s);
     if (!s.size) s.add("clear");
     return s;
   }
@@ -387,6 +410,9 @@ export class SoloMode {
     const night = g.world.sky.night;
     this.runner.update(paused ? 0 : dt, me);
     this.tele.update(dt, performance.now() / 1000);
+    this.hazards?.update(paused ? 0 : dt, performance.now() / 1000);
+    if (this.gateSnap > 0 && g.reel.active && !paused) g.reel.tension = Math.max(g.reel.tension, Math.min(1.05, g.reel.tension + dt * 0.75));
+    else if (!g.reel.active) this.gateSnap = 0;
     this.decor?.update(dt, performance.now() / 1000, night);
     // lantern + night visibility
     const L = net.loadout;
@@ -420,7 +446,7 @@ export class SoloMode {
       loadKg: kg, capKg: L.capacityKg, loadFactor: lf, bait, baitTypes: this.baitTypes().length,
       atDock, restLabel: this.clock.restTarget.label, skillPoints: Math.max(0, skillPointsLeft(save, me?.xp ?? save.xp)),
     });
-    this.hazards.update(dt, me, paused);
+    this.env.update(dt, me, paused);
   }
 
   onKey(code: string): boolean {
@@ -435,10 +461,10 @@ export class SoloMode {
     return false;
   }
 
-  hint(me: PlayerS | undefined, phase: string) { return this.runner.hint(me, phase) || (this.runner.busy ? "" : this.hazards.hint(me, phase)); }
+  hint(me: PlayerS | undefined, phase: string) { return this.runner.hint(me, phase) || (this.runner.busy ? "" : this.env.hint(me, phase)); }
   mapExtras(): MapExtra[] {
     const lm = this.region.landmarks.filter((l) => l.kind === "wreck").map((l) => ({ x: l.x, z: l.z, icon: "⚓", color: this.clock.phase === "night" ? "#a8c0ff" : "#d9c9a8", pulse: this.clock.phase === "night" }));
-    return [...lm, ...this.actors.mapExtras(), ...this.hazards.mapExtras()];
+    return [...lm, ...this.actors.mapExtras(), ...this.env.mapExtras()];
   }
   bossBar() { return this.runner.bossBar(); }
   isBoss(id: string) { return this.runner.bossId === id; }
