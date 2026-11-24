@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite --host --port 6280 --strictPort",
     "build": "tsc --noEmit && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "balance": "tsx scripts/balance.ts"
   },
   "dependencies": {
     "@colyseus/sdk": "^0.18.10",

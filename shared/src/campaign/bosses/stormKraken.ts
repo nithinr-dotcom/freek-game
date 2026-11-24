@@ -9,7 +9,7 @@ registerBoss({
   region: "stormbreak",
   monsterKind: "kraken",
   // the head; the four tentacles have their own HP (StormKraken.TENTACLE_HP)
-  hp: 900,
+  hp: 1200, // P4 balance (was 900)
   phases: [{ atPct: 1, name: "Tentacles" }, { atPct: 0.5, name: "Ink Storm" }],
   trophy: "kraken_beak",
   title: "kraken_tamer",

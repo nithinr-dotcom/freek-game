@@ -56,7 +56,7 @@ const chapters: CampaignChapter[] = [
     setup: { zones: ["shallows", "reef", "abyss"], monsters: "random", startHour: 18, pickups: [{ kind: "stormglass", points: ["glass_1", "glass_2", "glass_3", "glass_4", "glass_5"] }] },
   },
   {
-    id: 16, act: 3, index: 4, region: R, title: "Line Breaker", parSeconds: 360,
+    id: 16, act: 3, index: 4, region: R, title: "Line Breaker", parSeconds: 300,
     intro: [
       "Out in the deep water swims the Thunder Marlin: over a hundred and twenty kilos of bad temper.",
       "It thrashes like a sail in a gale. A weak line won't last a second: you need a Sharkline (line T3) or better.",
@@ -88,7 +88,7 @@ const chapters: CampaignChapter[] = [
     setup: { zones: ["shallows", "reef"], monsters: "none", startHour: 12, npcs: [{ id: "supply", name: "Supply Ship", hp: 480, mode: "moored", at: "supply_moor" }] },
   },
   {
-    id: 18, act: 3, index: 6, region: R, title: "BOSS: Storm Kraken", boss: "storm_kraken", parSeconds: 300,
+    id: 18, act: 3, index: 6, region: R, title: "BOSS: Storm Kraken", boss: "storm_kraken", parSeconds: 240,
     intro: [
       "Every storm in the Strait is born in one place: the Kraken's Deep. The beast down there calls the lightning.",
       "Four tentacles guard it. Each one can be cut down; when all four are gone, the head comes up. That's your target.",

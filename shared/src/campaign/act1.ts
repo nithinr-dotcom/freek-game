@@ -39,7 +39,7 @@ const chapters: CampaignChapter[] = [
     setup: { zones: ["shallows", "reef"], monsters: "none", startHour: 11 },
   },
   {
-    id: 3, act: 1, index: 3, region: R, title: "Steady Hands", parSeconds: 300,
+    id: 3, act: 1, index: 3, region: R, title: "Steady Hands", parSeconds: 240,
     intro: [
       "My old scale's been asking for a proper Bay Perch. Not a tiddler, not a whale.",
       "Between 1.0 and 1.2 kilos, mind. Perch live in the shallows near the dock.",
@@ -72,7 +72,7 @@ const chapters: CampaignChapter[] = [
     tips: { rest: "Rest at the dock to skip to nightfall", night: "Night has fallen. Sail to the Old Wreck!" },
   },
   {
-    id: 5, act: 1, index: 5, region: R, title: "Bait and Switch", parSeconds: 360,
+    id: 5, act: 1, index: 5, region: R, title: "Bait and Switch", parSeconds: 300,
     intro: [
       "Bluefin Tuna won't look at a bare hook. They want a Silver Sardine.",
       "Catch a sardine and KEEP it as bait (press B or tap the bait slot when I ask). Then fish the Reef.",

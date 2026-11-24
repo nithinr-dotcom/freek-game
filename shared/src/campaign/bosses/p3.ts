@@ -7,7 +7,7 @@ registerBoss({
   epithet: "The Heart Beneath the Ice",
   region: "frozen_fjord",
   monsterKind: "serpent",
-  hp: 1000,
+  hp: 1500, // P4 balance (was 1000)
   phases: [{ atPct: 1, name: "Under the Ice" }, { atPct: 0.5, name: "Floe Breaker" }],
   trophy: "leviathan_heart",
   title: "leviathan_breaker",
@@ -22,7 +22,7 @@ registerBoss({
   epithet: "The Hunger at the Bottom of the World",
   region: "abyss_trench",
   monsterKind: "kraken",
-  hp: 1800,
+  hp: 2600, // P4 balance (was 1800)
   phases: [{ atPct: 1, name: "The Whirlpool" }, { atPct: 0.6, name: "Abyssal Tide" }, { atPct: 0.25, name: "The Eye Duel" }],
   trophy: "maelstrom_core",
   title: "tidebreaker",

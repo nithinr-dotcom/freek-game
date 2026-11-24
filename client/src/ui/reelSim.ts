@@ -143,7 +143,7 @@ export class ReelSim {
           this.fishTarget = clamp01(this.fishPos + dir * (0.14 + rng() * 0.2));
           this.retarget = 0.3 + rng() * 0.45;
         }
-        speed *= 1.8; damping += 1.5;
+        speed = (0.9 + d * 2.4) * 1.5; damping += 1.5; // P4 balance: was speed ×1.8 (rare+ darters were near-impossible)
         break;
       case "feinter":
         if (this.surgeT > 0) speed *= 2.4;

@@ -75,7 +75,7 @@ const chapters: CampaignChapter[] = [
     setup: { zones: ["shallows", "reef", "abyss"], monsters: "random", startHour: 10, weather: "clear", npcs: [{ id: "barge", name: "Sled-Barge", hp: 140, mode: "tow", at: "dock" }] },
   },
   {
-    id: 23, act: 4, index: 5, region: R, title: "Deep Freeze", parSeconds: 420,
+    id: 23, act: 4, index: 5, region: R, title: "Deep Freeze", parSeconds: 360,
     intro: [
       "A blizzard's coming, and blizzards bring the big fish up. Also frostbite.",
       "Eight fish in a row, no snapped lines. In this weather your warmth will drain twice as fast.",
@@ -91,7 +91,7 @@ const chapters: CampaignChapter[] = [
     setup: { zones: ["shallows", "reef", "abyss"], monsters: "random", weather: "storm", startHour: 12, speciesBoost: { berg_halibut: 2.2 } },
   },
   {
-    id: 24, act: 4, index: 6, region: R, title: "BOSS: Ice Leviathan", boss: "ice_leviathan", parSeconds: 300,
+    id: 24, act: 4, index: 6, region: R, title: "BOSS: Ice Leviathan", boss: "ice_leviathan", parSeconds: 240,
     intro: [
       "There it is: the ice sheet north of the dock. Something under it has been eating my heater buoys.",
       "It hides beneath the plates. Harpoon a plate to crack it; break the one it's under and it's exposed.",

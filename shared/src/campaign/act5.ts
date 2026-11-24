@@ -46,7 +46,7 @@ const chapters: CampaignChapter[] = [
     setup: { zones: ["shallows", "reef"], monsters: "random" },
   },
   {
-    id: 27, act: 5, index: 3, region: R, title: "The Chain", parSeconds: 420,
+    id: 27, act: 5, index: 3, region: R, title: "The Chain", parSeconds: 360,
     intro: [
       "Down here everything eats something that glows. Let's use that.",
       "Catch a Lanternfish and keep it as bait. A Void Eel can't resist the light.",
@@ -63,10 +63,10 @@ const chapters: CampaignChapter[] = [
     tips: { bait: "Keep it as bait: press B / tap the bait slot" },
   },
   {
-    id: 28, act: 5, index: 4, region: R, title: "Into the Dark", parSeconds: 480,
+    id: 28, act: 5, index: 4, region: R, title: "Into the Dark", parSeconds: 420,
     intro: [
       "The deepest water, far past the buoys. Nothing out there is small.",
-      "Three Epic fish or better, and you've got ten minutes before the cold and the dark get you.",
+      "Three Epic fish or better, and you've got nine minutes before the cold and the dark get you.",
       "No second chances: sink and we start over. If the Drowned Star shows itself… well. Legends are legends.",
     ],
     hint: "Fish in the outer Abyss ring, where Epics are most common. Bank often: a sinking boat loses everything. Bring a strong line (T4) for the heavy ones.",
@@ -75,7 +75,7 @@ const chapters: CampaignChapter[] = [
       { id: "legend", title: "Land a Legendary fish", kind: { type: "catch_tier", tier: "legendary", n: 1 } },
       { id: "perfect2", title: "Land 2 perfect reels", kind: { type: "perfect_reel", n: 2 } },
     ],
-    fail: { ironman: true, timeLimit: 600 },
+    fail: { ironman: true, timeLimit: 540 },
     rewards: { xp: 2100, coins: 760, materials: { abyssink: 9 } },
     setup: { zones: ["shallows", "reef", "abyss"], monsters: "random", speciesBoost: { drowned_star: 1.5, pale_gulper: 1.8 } },
   },
@@ -96,7 +96,7 @@ const chapters: CampaignChapter[] = [
     setup: { zones: ["shallows", "reef", "abyss"], monsters: "random", npcs: [{ id: "marlow", name: "Marlow's Boat", hp: 160, mode: "tow", at: "dock" }] },
   },
   {
-    id: 30, act: 5, index: 6, region: R, title: "FINAL BOSS: Maelstrom Eye", boss: "maelstrom_eye", parSeconds: 420,
+    id: 30, act: 5, index: 6, region: R, title: "FINAL BOSS: Maelstrom Eye", boss: "maelstrom_eye", parSeconds: 360,
     intro: [
       "There. The whirlpool at the heart of the Trench, and the Eye at the bottom of it.",
       "The current will pull you in. Sail against it, and never let it drag you to the centre.",

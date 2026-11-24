@@ -43,7 +43,7 @@ registerSpecies([
   },
   {
     id: "abyssal_shark", name: "Abyssal Shark", tier: "epic", zones: ["reef", "abyss"], minKg: 90, maxKg: 260, model: "fish_shark", tint: "#24124a",
-    region: R, behaviour: "thrasher", conditions: { bait: "void_eel" }, specialChance: 0.6,
+    region: R, behaviour: "diver", conditions: { bait: "void_eel" }, specialChance: 0.6,
     clue: "The top of the trench's food chain. It only eats what eats the light.",
   },
   {

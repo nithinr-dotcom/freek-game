@@ -13,21 +13,30 @@ export const GEAR_SLOT_INFO: Record<GearSlot, { name: string; icon: string; blur
 };
 
 type Cost = Partial<Record<MaterialId, number>>;
+// P4 balance: coins scaled up (banking big fish made coins meaningless by Act 3) and one trophy per T4/T5 craft,
+// spread over the slots (see slotTrophy), instead of two of the same trophies for every slot.
 const costs: { coins: number; mats: Cost }[] = [
   { coins: 0, mats: {} },
-  { coins: 120, mats: { shell: 6 } },
-  { coins: 400, mats: { shell: 10, coral: 8 } },
-  { coins: 1000, mats: { coral: 6, stormglass: 10, serpent_fang: 1, titan_carapace: 1 } },
-  { coins: 2400, mats: { stormglass: 6, icepearl: 12, kraken_beak: 1, leviathan_heart: 1 } },
+  { coins: 150, mats: { shell: 6 } },
+  { coins: 800, mats: { shell: 10, coral: 8 } },
+  { coins: 2600, mats: { coral: 8, stormglass: 10 } },
+  { coins: 6500, mats: { stormglass: 8, icepearl: 12, abyssink: 6 } },
 ];
+/** the boss trophy each slot's T4 / T5 needs */
+const slotTrophy: Record<GearSlot, [MaterialId, MaterialId]> = {
+  rod: ["serpent_fang", "kraken_beak"], reel: ["titan_carapace", "leviathan_heart"], line: ["serpent_fang", "leviathan_heart"],
+  hull: ["titan_carapace", "kraken_beak"], harpoon: ["kraken_beak", "maelstrom_core"], lantern: ["titan_carapace", "leviathan_heart"],
+  heater: ["kraken_beak", "leviathan_heart"],
+};
 const slotCoinMult: Record<GearSlot, number> = { rod: 1, reel: 1, line: 0.8, hull: 1.3, harpoon: 1.1, lantern: 0.7, heater: 0.7 };
 const slotMatExtra: Partial<Record<GearSlot, Cost[]>> = {
-  lantern: [{}, {}, {}, {}, { abyssink: 6 }],
+  lantern: [{}, {}, {}, {}, { abyssink: 4 }],
   heater: [{}, {}, {}, { icepearl: 4 }, {}],
 };
 function cost(slot: GearSlot, t: number) {
   const c = costs[t - 1];
   const mats: Cost = { ...c.mats };
+  if (t >= 4) mats[slotTrophy[slot][t - 4]] = 1;
   for (const [k, v] of Object.entries(slotMatExtra[slot]?.[t - 1] ?? {})) mats[k as MaterialId] = (mats[k as MaterialId] ?? 0) + (v as number);
   return { coins: Math.round(c.coins * slotCoinMult[slot]), mats };
 }

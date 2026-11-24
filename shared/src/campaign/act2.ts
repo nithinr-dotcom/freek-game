@@ -24,7 +24,7 @@ const chapters: CampaignChapter[] = [
     setup: { zones: ["shallows", "reef"], monsters: "none", startHour: 10, weather: "clear", pickups: [{ kind: "pearl", points: pearls }] },
   },
   {
-    id: 8, act: 2, index: 2, region: R, title: "Colour Hunt", parSeconds: 360,
+    id: 8, act: 2, index: 2, region: R, title: "Colour Hunt", parSeconds: 300,
     intro: [
       "Every fish in this maze wears a different coat. My granddaughter wants to paint them all.",
       "Bring me four different Coral Maze species. A Gold one would make her week.",
@@ -73,7 +73,7 @@ const chapters: CampaignChapter[] = [
     setup: { zones: ["shallows", "reef"], monsters: "none", startHour: 14, npcs: [{ id: "nell", name: "Nell's Pearl Boat", hp: 120, mode: "tow", at: "diver_grotto" }] },
   },
   {
-    id: 11, act: 2, index: 5, region: R, title: "Greed", parSeconds: 420,
+    id: 11, act: 2, index: 5, region: R, title: "Greed", parSeconds: 330,
     intro: [
       "Nell says the deep channels are thick with big fish. Big fish mean big money, and big money means a heavy boat.",
       "Bring home 600 points in a single trip. The more you carry, the slower you sail, so pick your moment to come home.",

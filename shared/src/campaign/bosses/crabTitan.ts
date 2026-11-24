@@ -8,7 +8,7 @@ registerBoss({
   epithet: "The Living Reef",
   region: "coral_maze",
   monsterKind: "kraken",
-  hp: 1000,
+  hp: 1300, // P4 balance (was 1000)
   phases: [{ atPct: 1, name: "Shell Guard" }, { atPct: 0.5, name: "Swarm" }],
   trophy: "titan_carapace",
   title: "titan_breaker",
